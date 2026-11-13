@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: orderflow-backend
+  profiles:
+    default: local
+  datasource:
+    url: ${ORDERFLOW_DB_URL:jdbc:mysql://localhost:3306/orderflow?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${ORDERFLOW_DB_USER:root}
+    password: ${ORDERFLOW_DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: ${ORDERFLOW_PORT:8080}
+  error:
+    whitelabel:
+      enabled: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /openapi.yaml
+
+orderflow:
+  openapi:
+    contract-path: ${ORDERFLOW_OPENAPI_PATH:../contratos/openapi.yaml}
+  security:
+    jwt:
+      secret: ${ORDERFLOW_JWT_SECRET:orderflow-local-lan-hs256-secret-key-minimum-32-bytes-2026}
+      issuer: ${ORDERFLOW_JWT_ISSUER:https://cafeteria.local}
+      access-token-ttl: 15m
+      refresh-token-ttl: 12h

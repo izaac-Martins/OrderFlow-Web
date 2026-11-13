@@ -1,0 +1,2563 @@
+openapi: 3.1.0
+info:
+  title: Cafeteria Platform API
+  version: 1.0.0-draft
+  description: |
+    Contrato-fonte (contract-first) da API da plataforma da cafeteria.
+    Consumidores: App Android (atendente), Web Master (backoffice), Web KDS (cozinha).
+
+    Convenções:
+    - Valores monetários: inteiros em centavos (sufixo `Centavos`).
+    - Percentuais: basis points (1500 = 15,00%).
+    - IDs: UUIDv7 em string.
+    - Datas: ISO-8601 em UTC.
+    - Erros: RFC 7807 (`application/problem+json`) com `code` estável (ver catalogo_erros.md).
+    - Escrita em recurso versionado exige `versao` no corpo (optimistic locking).
+    - POSTs financeiros e de pedido exigem header `Idempotency-Key`.
+    - Multi-loja: a loja é derivada da claim `lojaId` do JWT; nunca é enviada no corpo.
+servers:
+  - url: https://cafeteria.local/api/v1
+    description: Servidor on-premise da loja (LAN)
+  - url: http://localhost:8080/api/v1
+    description: Desenvolvimento
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Catalogo-Categorias
+  - name: Catalogo-Produtos
+  - name: Catalogo-Modificadores
+  - name: Catalogo-Combos
+  - name: Catalogo-Insumos
+  - name: Catalogo-Projecao
+  - name: Pedidos
+  - name: Pagamentos
+  - name: Caixa
+  - name: Cozinha
+  - name: Relatorios
+
+paths:
+  # ───────────────────────────── AUTH ─────────────────────────────
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Login por usuário/senha
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Autenticado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Renova access token (refresh token rotativo)
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Renovado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoga o refresh token do dispositivo
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '204': { description: Revogado }
+
+  # ─────────────────────────── CATEGORIAS ───────────────────────────
+  /categorias:
+    get:
+      tags: [Catalogo-Categorias]
+      summary: Lista categorias (árvore de até 2 níveis)
+      operationId: listarCategorias
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      parameters:
+        - name: incluirArquivadas
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Árvore de categorias
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CategoriaResponse' }
+    post:
+      tags: [Catalogo-Categorias]
+      summary: Cria categoria ou subcategoria
+      operationId: criarCategoria
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoriaRequest' }
+      responses:
+        '201':
+          description: Criada
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategoriaResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /categorias/ordem:
+    patch:
+      tags: [Catalogo-Categorias]
+      summary: Reordena categorias em lote
+      operationId: reordenarCategorias
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              items: { $ref: '#/components/schemas/OrdemItem' }
+      responses:
+        '204': { description: Reordenado }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /categorias/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Catalogo-Categorias]
+      operationId: obterCategoria
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Categoria
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategoriaResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Catalogo-Categorias]
+      operationId: atualizarCategoria
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/CategoriaRequest'
+                - $ref: '#/components/schemas/Versionado'
+      responses:
+        '200':
+          description: Atualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategoriaResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [Catalogo-Categorias]
+      summary: Arquiva categoria (soft delete)
+      operationId: arquivarCategoria
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '204': { description: Arquivada }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ──────────────────────────── PRODUTOS ────────────────────────────
+  /produtos:
+    get:
+      tags: [Catalogo-Produtos]
+      operationId: listarProdutos
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      parameters:
+        - { name: categoriaId, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, schema: { type: string, maxLength: 80 } }
+        - { name: tipo, in: query, schema: { $ref: '#/components/schemas/TipoProduto' } }
+        - { name: ativo, in: query, schema: { type: boolean } }
+        - { name: disponivel, in: query, schema: { type: boolean } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Página de produtos
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [content]
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/ProdutoResumo' }
+    post:
+      tags: [Catalogo-Produtos]
+      operationId: criarProduto
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProdutoCriarRequest' }
+      responses:
+        '201':
+          description: Criado
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProdutoDetalhe' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /produtos/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Catalogo-Produtos]
+      operationId: obterProduto
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Produto com grupos, insumos e (se COMBO) slots
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProdutoDetalhe' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Catalogo-Produtos]
+      summary: Atualiza dados cadastrais (não altera preço)
+      operationId: atualizarProduto
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProdutoAtualizarRequest' }
+      responses:
+        '200':
+          description: Atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProdutoDetalhe' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [Catalogo-Produtos]
+      summary: Arquiva produto
+      operationId: arquivarProduto
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '204': { description: Arquivado }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /produtos/{id}/preco:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags: [Catalogo-Produtos]
+      summary: Altera preço base e registra histórico
+      operationId: alterarPrecoProduto
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlterarPrecoProdutoRequest' }
+      responses:
+        '200':
+          description: Preço alterado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProdutoDetalhe' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /produtos/{id}/disponibilidade:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags: [Catalogo-Produtos]
+      summary: Pausa/reativa produto (propaga via /topic/disponibilidade)
+      operationId: alterarDisponibilidadeProduto
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PausaRequest' }
+      responses:
+        '200':
+          description: Disponibilidade atualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DisponibilidadeResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /produtos/{id}/grupos-modificadores:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Catalogo-Produtos]
+      summary: Substitui os vínculos de grupos de modificadores do produto
+      operationId: vincularGruposModificadores
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VinculoGruposRequest' }
+      responses:
+        '200':
+          description: Vínculos atualizados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProdutoDetalhe' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /produtos/{id}/insumos:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Catalogo-Produtos]
+      summary: Substitui as dependências de insumos do produto
+      operationId: vincularInsumosProduto
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VinculoInsumosRequest' }
+      responses:
+        '200':
+          description: Vínculos atualizados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProdutoDetalhe' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /produtos/{id}/historico-precos:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Catalogo-Produtos]
+      operationId: historicoPrecosProduto
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Histórico (mais recente primeiro)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HistoricoPrecoResponse' }
+
+  # ───────────────────────────── COMBOS ─────────────────────────────
+  /produtos/{id}/combo-slots:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Catalogo-Combos]
+      summary: Substitui os slots do combo (produto deve ser tipo COMBO)
+      operationId: definirSlotsCombo
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComboSlotsRequest' }
+      responses:
+        '200':
+          description: Slots atualizados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProdutoDetalhe' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  # ────────────────────────── MODIFICADORES ──────────────────────────
+  /grupos-modificadores:
+    get:
+      tags: [Catalogo-Modificadores]
+      operationId: listarGruposModificadores
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: ativo, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Grupos com modificadores
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GrupoModificadorResponse' }
+    post:
+      tags: [Catalogo-Modificadores]
+      operationId: criarGrupoModificador
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrupoModificadorCriarRequest' }
+      responses:
+        '201':
+          description: Criado
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GrupoModificadorResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /grupos-modificadores/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Catalogo-Modificadores]
+      operationId: obterGrupoModificador
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Grupo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GrupoModificadorResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Catalogo-Modificadores]
+      summary: Atualiza metadados do grupo (modificadores têm rotas próprias)
+      operationId: atualizarGrupoModificador
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrupoModificadorAtualizarRequest' }
+      responses:
+        '200':
+          description: Atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GrupoModificadorResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [Catalogo-Modificadores]
+      summary: Arquiva grupo (409 se vinculado a produto ativo)
+      operationId: arquivarGrupoModificador
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '204': { description: Arquivado }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /grupos-modificadores/{id}/modificadores:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Catalogo-Modificadores]
+      operationId: criarModificador
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModificadorRequest' }
+      responses:
+        '201':
+          description: Criado
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModificadorResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /modificadores/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Catalogo-Modificadores]
+      summary: Atualiza modificador (preço via rota /preco)
+      operationId: atualizarModificador
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModificadorAtualizarRequest' }
+      responses:
+        '200':
+          description: Atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModificadorResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [Catalogo-Modificadores]
+      operationId: arquivarModificador
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '204': { description: Arquivado }
+  /modificadores/{id}/preco:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags: [Catalogo-Modificadores]
+      operationId: alterarPrecoModificador
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlterarPrecoModificadorRequest' }
+      responses:
+        '200':
+          description: Preço alterado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModificadorResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /modificadores/{id}/disponibilidade:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags: [Catalogo-Modificadores]
+      operationId: alterarDisponibilidadeModificador
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PausaRequest' }
+      responses:
+        '200':
+          description: Disponibilidade atualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DisponibilidadeResponse' }
+  /modificadores/{id}/historico-precos:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Catalogo-Modificadores]
+      operationId: historicoPrecosModificador
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Histórico
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HistoricoPrecoResponse' }
+
+  # ───────────────────────────── INSUMOS ─────────────────────────────
+  /insumos:
+    get:
+      tags: [Catalogo-Insumos]
+      operationId: listarInsumos
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      parameters:
+        - { name: disponivel, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Insumos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/InsumoResponse' }
+    post:
+      tags: [Catalogo-Insumos]
+      operationId: criarInsumo
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InsumoRequest' }
+      responses:
+        '201':
+          description: Criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InsumoResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /insumos/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Catalogo-Insumos]
+      operationId: atualizarInsumo
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/InsumoRequest'
+                - $ref: '#/components/schemas/Versionado'
+      responses:
+        '200':
+          description: Atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InsumoResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /insumos/{id}/disponibilidade:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags: [Catalogo-Insumos]
+      summary: Marca insumo esgotado/disponível; retorna itens impactados
+      operationId: alterarDisponibilidadeInsumo
+      x-roles: [COZINHA, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InsumoDisponibilidadeRequest' }
+      responses:
+        '200':
+          description: Disponibilidade atualizada com impacto em cascata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InsumoDisponibilidadeResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── PROJEÇÃO DE CATÁLOGO ───────────────────────
+  /catalogo:
+    get:
+      tags: [Catalogo-Projecao]
+      summary: Catálogo completo de venda com disponibilidade calculada
+      description: |
+        Projeção de leitura otimizada para Android e balcão. `ETag` = versão do catálogo.
+        Enviar `If-None-Match` para receber 304 quando inalterado.
+      operationId: obterCatalogo
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: Catálogo
+          headers:
+            ETag:
+              schema: { type: string }
+              description: Versão do catálogo entre aspas, ex. "1842"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogoResponse' }
+        '304': { description: Catálogo inalterado }
+
+  # ───────────────────────────── PEDIDOS ─────────────────────────────
+  /pedidos:
+    get:
+      tags: [Pedidos]
+      operationId: listarPedidos
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      parameters:
+        - name: status
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/StatusPedido' }
+        - { name: dataOperacional, in: query, schema: { type: string, format: date } }
+        - { name: emAberto, in: query, description: Apenas com saldo devedor > 0, schema: { type: boolean } }
+        - { name: mesa, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Página de pedidos
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [content]
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/PedidoResponse' }
+    post:
+      tags: [Pedidos]
+      summary: Cria pedido (preços recalculados no servidor)
+      operationId: criarPedido
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CriarPedidoRequest' }
+      responses:
+        '201':
+          description: Criado
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoResponse' }
+        '200':
+          description: Replay idempotente (mesma chave e mesmo payload)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+  /pedidos/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Pedidos]
+      operationId: obterPedido
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /pedidos/{id}/confirmar:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Pedidos]
+      summary: CRIADO → CONFIRMADO (PRE_PAGO exige quitação)
+      operationId: confirmarPedido
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Versionado' }
+      responses:
+        '200':
+          description: Confirmado (ou já estava — idempotente)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /pedidos/{id}/cancelar:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Pedidos]
+      summary: Cancela (→ CANCELADO) ou estorna (→ ESTORNADO se houver pagamento)
+      description: |
+        ATENDENTE: somente CRIADO/CONFIRMADO. EM_PREPARO, PRONTO e ENTREGUE exigem GERENTE+.
+        Com pagamento confirmado, o estorno exige sessão de caixa aberta para devolução em dinheiro.
+      operationId: cancelarPedido
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelarPedidoRequest' }
+      responses:
+        '200':
+          description: Cancelado/estornado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /pedidos/{id}/entregar:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Pedidos]
+      summary: PRONTO → ENTREGUE
+      operationId: entregarPedido
+      x-roles: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Versionado' }
+      responses:
+        '200':
+          description: Entregue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ──────────────────────────── PAGAMENTOS ────────────────────────────
+  /pagamentos:
+    post:
+      tags: [Pagamentos]
+      summary: Registra pagamento (dinheiro gera movimentação de caixa)
+      operationId: registrarPagamento
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PagamentoRequest' }
+      responses:
+        '201':
+          description: Registrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagamentoResponse' }
+        '200':
+          description: Replay idempotente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagamentoResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+  /pagamentos/{id}/estorno:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Pagamentos]
+      operationId: estornarPagamento
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MotivoRequest' }
+      responses:
+        '200':
+          description: Estornado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagamentoResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  # ────────────────────────────── CAIXA ──────────────────────────────
+  /caixas:
+    get:
+      tags: [Caixa]
+      operationId: listarCaixas
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Terminais da loja
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CaixaResponse' }
+  /caixas/{id}/abrir-gaveta:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Caixa]
+      summary: Abertura avulsa de gaveta (auditada)
+      operationId: abrirGaveta
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MotivoRequest' }
+      responses:
+        '202': { description: Comando enviado à impressora }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /caixa/sessoes:
+    get:
+      tags: [Caixa]
+      summary: Histórico de sessões
+      operationId: listarSessoes
+      x-roles: [GERENTE, ADMIN]
+      parameters:
+        - { name: de, in: query, schema: { type: string, format: date } }
+        - { name: ate, in: query, schema: { type: string, format: date } }
+        - { name: operadorId, in: query, schema: { type: string, format: uuid } }
+        - { name: caixaId, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/StatusSessaoCaixa' } }
+        - { name: comDiferenca, in: query, schema: { type: boolean } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Página de sessões
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [content]
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SessaoCaixaGerencialResponse' }
+    post:
+      tags: [Caixa]
+      summary: Abre sessão de caixa com fundo de troco
+      operationId: abrirSessao
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AbrirSessaoRequest' }
+      responses:
+        '201':
+          description: Sessão aberta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessaoCaixaOperadorResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /caixa/sessoes/atual:
+    get:
+      tags: [Caixa]
+      summary: Sessão aberta do caixa (sem saldo esperado)
+      operationId: sessaoAtual
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      parameters:
+        - { name: caixaId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Sessão aberta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessaoCaixaOperadorResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /caixa/sessoes/{id}/sangrias:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Caixa]
+      summary: Sangria (motivo obrigatório; acima do limite exige PIN de gerente)
+      description: |
+        Sangria acima do saldo esperado é ACEITA com resposta idêntica e sinalizada
+        internamente (SALDO_ESPERADO_NEGATIVO) — a resposta nunca revela saldo.
+      operationId: registrarSangria
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SangriaRequest' }
+      responses:
+        '201':
+          description: Registrada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MovimentacaoOperadorResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /caixa/sessoes/{id}/suprimentos:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Caixa]
+      operationId: registrarSuprimento
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SuprimentoRequest' }
+      responses:
+        '201':
+          description: Registrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MovimentacaoOperadorResponse' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /caixa/sessoes/{id}/fechamento:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Caixa]
+      summary: Fechamento cego (resposta não revela esperado nem diferença)
+      operationId: fecharSessao
+      x-roles: [ATENDENTE, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FechamentoCegoRequest' }
+      responses:
+        '200':
+          description: Sessão fechada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FechamentoProtocoloResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /caixa/sessoes/{id}/conferencia:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Caixa]
+      summary: Esperado x declarado x diferença (sessão FECHADA/CONFERIDA)
+      operationId: obterConferencia
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Conferência
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConferenciaResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /caixa/sessoes/{id}/conferir:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Caixa]
+      summary: FECHADA → CONFERIDA
+      operationId: conferirSessao
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConferirSessaoRequest' }
+      responses:
+        '200':
+          description: Conferida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConferenciaResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /caixa/sessoes/{id}/saldo:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Caixa]
+      summary: Saldo esperado em tempo real (nunca exposto ao operador)
+      operationId: obterSaldoSessao
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Saldo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SaldoSessaoResponse' }
+  /caixa/sessoes/{id}/movimentacoes:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Caixa]
+      operationId: listarMovimentacoes
+      x-roles: [GERENTE, ADMIN]
+      responses:
+        '200':
+          description: Extrato da sessão
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MovimentacaoGerencialResponse' }
+  /caixa/movimentacoes/{id}/estorno:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Caixa]
+      summary: Lançamento reverso de movimentação (nunca update)
+      operationId: estornarMovimentacao
+      x-roles: [GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MotivoRequest' }
+      responses:
+        '201':
+          description: Estorno lançado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MovimentacaoGerencialResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  # ───────────────────────────── COZINHA ─────────────────────────────
+  /cozinha/pedidos/ativos:
+    get:
+      tags: [Cozinha]
+      summary: Snapshot do KDS (CONFIRMADO, EM_PREPARO, PRONTO) + seqAtual
+      operationId: snapshotCozinha
+      x-roles: [COZINHA, GERENTE, ADMIN]
+      parameters:
+        - { name: estacao, in: query, schema: { $ref: '#/components/schemas/EstacaoPreparo' } }
+      responses:
+        '200':
+          description: Snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CozinhaSnapshotResponse' }
+  /cozinha/eventos:
+    get:
+      tags: [Cozinha]
+      summary: Replay de eventos após reconexão
+      operationId: replayEventosCozinha
+      x-roles: [COZINHA, GERENTE, ADMIN]
+      parameters:
+        - { name: desdeSeq, in: query, required: true, schema: { type: integer, format: int64, minimum: 0 } }
+        - { name: estacao, in: query, schema: { $ref: '#/components/schemas/EstacaoPreparo' } }
+      responses:
+        '200':
+          description: Eventos com seq > desdeSeq, em ordem
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PedidoCozinhaEvento' }
+        '410': { $ref: '#/components/responses/Gone' }
+  /cozinha/pedidos/{id}/iniciar-preparo:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Cozinha]
+      operationId: iniciarPreparo
+      x-roles: [COZINHA, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Versionado' }
+      responses:
+        '200':
+          description: EM_PREPARO
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoCozinha' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /cozinha/pedidos/{id}/marcar-pronto:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Cozinha]
+      operationId: marcarPronto
+      x-roles: [COZINHA, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Versionado' }
+      responses:
+        '200':
+          description: PRONTO
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoCozinha' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /cozinha/pedidos/{id}/refazer:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Cozinha]
+      summary: PRONTO → EM_PREPARO com motivo
+      operationId: refazerPedido
+      x-roles: [COZINHA, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Versionado'
+                - $ref: '#/components/schemas/MotivoRequest'
+      responses:
+        '200':
+          description: EM_PREPARO
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoCozinha' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /cozinha/pedidos/{id}/entregar:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Cozinha]
+      operationId: entregarPedidoCozinha
+      x-roles: [COZINHA, GERENTE, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Versionado' }
+      responses:
+        '200':
+          description: ENTREGUE
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PedidoCozinha' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /cozinha/pedidos/{id}/reimprimir:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Cozinha]
+      operationId: reimprimirComanda
+      x-roles: [COZINHA, ATENDENTE, GERENTE, ADMIN]
+      responses:
+        '202': { description: Trabalho de impressão enfileirado }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ──────────────────────────── RELATÓRIOS ────────────────────────────
+  /relatorios/faturamento:
+    get:
+      tags: [Relatorios]
+      operationId: relatorioFaturamento
+      x-roles: [GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/De'
+        - $ref: '#/components/parameters/Ate'
+        - name: granularidade
+          in: query
+          schema: { type: string, enum: [HORA, DIA, SEMANA, MES], default: DIA }
+      responses:
+        '200':
+          description: Série temporal
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PontoFaturamento' }
+  /relatorios/ticket-medio:
+    get:
+      tags: [Relatorios]
+      operationId: relatorioTicketMedio
+      x-roles: [GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/De'
+        - $ref: '#/components/parameters/Ate'
+      responses:
+        '200':
+          description: Ticket médio com comparação ao período anterior
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketMedioResponse' }
+  /relatorios/horarios-pico:
+    get:
+      tags: [Relatorios]
+      operationId: relatorioHorariosPico
+      x-roles: [GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/De'
+        - $ref: '#/components/parameters/Ate'
+      responses:
+        '200':
+          description: Matriz dia da semana x hora (fuso da loja)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CelulaPico' }
+  /relatorios/curva-abc:
+    get:
+      tags: [Relatorios]
+      operationId: relatorioCurvaAbc
+      x-roles: [GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/De'
+        - $ref: '#/components/parameters/Ate'
+        - name: criterio
+          in: query
+          schema: { type: string, enum: [FATURAMENTO, QUANTIDADE], default: FATURAMENTO }
+      responses:
+        '200':
+          description: Produtos classificados A/B/C
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ItemCurvaAbc' }
+  /relatorios/tempo-preparo:
+    get:
+      tags: [Relatorios]
+      operationId: relatorioTempoPreparo
+      x-roles: [GERENTE, ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/De'
+        - $ref: '#/components/parameters/Ate'
+        - { name: estacao, in: query, schema: { $ref: '#/components/schemas/EstacaoPreparo' } }
+      responses:
+        '200':
+          description: Percentis de confirmação → pronto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TempoPreparoResponse' }
+
+# ═══════════════════════════════ COMPONENTS ═══════════════════════════════
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Claims: sub (usuarioId), lojaId, role, authorities[], caixaId?, estacao?.
+        Access token 15 min; refresh 12 h rotativo.
+
+  headers:
+    Location:
+      description: URI do recurso criado
+      schema: { type: string, format: uri-reference }
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID gerado pelo cliente; mesma chave + mesmo payload = replay (200); payload diferente = 409.
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Sort:
+      name: sort
+      in: query
+      description: 'campo,direcao (ex.: nome,asc)'
+      schema: { type: string }
+    De:
+      name: de
+      in: query
+      required: true
+      schema: { type: string, format: date }
+    Ate:
+      name: ate
+      in: query
+      required: true
+      schema: { type: string, format: date }
+
+  responses:
+    BadRequest:
+      description: Requisição malformada ou falha de validação de campos
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Não autenticado / token expirado
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Sem permissão para a ação
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Recurso inexistente (ou de outra loja)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Conflito de estado, versão ou unicidade
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Gone:
+      description: Intervalo de eventos indisponível; buscar snapshot
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnprocessableEntity:
+      description: Regra de negócio violada
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PreconditionRequired:
+      description: Falta Idempotency-Key ou versao
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    # ─────────── Base ───────────
+    Uuid:
+      type: string
+      format: uuid
+    Centavos:
+      type: integer
+      format: int64
+      minimum: 0
+      description: Valor monetário em centavos
+    Versionado:
+      type: object
+      required: [versao]
+      properties:
+        versao: { type: integer, minimum: 0 }
+    MotivoRequest:
+      type: object
+      required: [motivo]
+      properties:
+        motivo: { type: string, minLength: 5, maxLength: 200 }
+    OrdemItem:
+      type: object
+      required: [id, ordem]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        ordem: { type: integer, minimum: 0 }
+    Auditoria:
+      type: object
+      properties:
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        createdBy: { $ref: '#/components/schemas/UsuarioRef' }
+        updatedBy: { $ref: '#/components/schemas/UsuarioRef' }
+    UsuarioRef:
+      type: object
+      required: [id, nome]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        nome: { type: string }
+    PageMeta:
+      type: object
+      required: [page, size, totalElements, totalPages]
+      properties:
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { $ref: '#/components/schemas/CodigoErro' }
+        detail: { type: string }
+        instance: { type: string }
+        traceId: { type: string }
+        erros:
+          type: array
+          items:
+            type: object
+            required: [campo, mensagem]
+            properties:
+              campo: { type: string }
+              mensagem: { type: string }
+              codigo: { type: string }
+        estadoAtual:
+          type: object
+          description: Presente em 409 de transição/versão
+          properties:
+            status: { type: string }
+            versao: { type: integer }
+        itensIndisponiveis:
+          type: array
+          description: Presente em ITEM_INDISPONIVEL
+          items: { $ref: '#/components/schemas/Uuid' }
+    CodigoErro:
+      type: string
+      description: Ver catalogo_erros.md
+      enum:
+        - VALIDACAO_CAMPOS
+        - JSON_INVALIDO
+        - NAO_AUTENTICADO
+        - TOKEN_EXPIRADO
+        - CREDENCIAIS_INVALIDAS
+        - ACESSO_NEGADO
+        - RECURSO_NAO_ENCONTRADO
+        - VERSAO_CONFLITANTE
+        - TRANSICAO_CONCORRENTE
+        - TRANSICAO_INVALIDA
+        - IDEMPOTENCY_KEY_REUTILIZADA
+        - IDEMPOTENCY_KEY_AUSENTE
+        - VERSAO_AUSENTE
+        - SKU_DUPLICADO
+        - SLUG_DUPLICADO
+        - NOME_DUPLICADO
+        - CATEGORIA_PROFUNDIDADE_EXCEDIDA
+        - CATEGORIA_COM_PRODUTOS_ATIVOS
+        - CATEGORIA_ARQUIVADA
+        - GRUPO_EM_USO
+        - LIMITES_SELECAO_INVALIDOS
+        - PRECO_INVALIDO
+        - PRODUTO_NAO_E_COMBO
+        - COMBO_ANINHADO
+        - ITEM_INDISPONIVEL
+        - MODIFICADOR_OBRIGATORIO
+        - MODIFICADOR_LIMITE
+        - MODIFICADOR_NAO_PERTENCE_PRODUTO
+        - MODIFICADOR_REPETICAO_NAO_PERMITIDA
+        - COMBO_SLOT_INVALIDO
+        - PRECO_DESATUALIZADO
+        - PEDIDO_NAO_QUITADO
+        - CANCELAMENTO_REQUER_GERENTE
+        - SESSAO_CAIXA_FECHADA
+        - SESSAO_CAIXA_INEXISTENTE
+        - CAIXA_JA_ABERTO
+        - OPERADOR_COM_SESSAO
+        - VALOR_EXCEDE_SALDO_DEVEDOR
+        - RECEBIDO_INSUFICIENTE
+        - TROCO_APENAS_DINHEIRO
+        - PAGAMENTO_JA_ESTORNADO
+        - MOVIMENTACAO_JA_ESTORNADA
+        - MOVIMENTACAO_NAO_ESTORNAVEL
+        - APROVACAO_NECESSARIA
+        - PIN_APROVADOR_INVALIDO
+        - DECLARACAO_DINHEIRO_OBRIGATORIA
+        - METODO_DECLARADO_DUPLICADO
+        - SESSAO_NAO_FECHADA
+        - SESSAO_DE_OUTRO_OPERADOR
+        - IMPRESSORA_INDISPONIVEL
+        - EVENTOS_EXPIRADOS
+        - ERRO_INTERNO
+
+    # ─────────── Enums ───────────
+    Role:
+      type: string
+      enum: [ATENDENTE, COZINHA, GERENTE, ADMIN]
+    TipoProduto:
+      type: string
+      enum: [SIMPLES, COMBO]
+    EstacaoPreparo:
+      type: string
+      enum: [BAR, COZINHA, NENHUMA]
+    TipoPreco:
+      type: string
+      enum: [NENHUM, FIXO, PERCENTUAL]
+    StatusPedido:
+      type: string
+      enum: [CRIADO, CONFIRMADO, EM_PREPARO, PRONTO, ENTREGUE, CANCELADO, ESTORNADO]
+    OrigemPedido:
+      type: string
+      enum: [APP_ATENDENTE, MASTER_BALCAO]
+    ModalidadePagamento:
+      type: string
+      enum: [PRE_PAGO, POS_PAGO]
+    MetodoPagamento:
+      type: string
+      enum: [DINHEIRO, PIX, CREDITO, DEBITO, VOUCHER]
+    StatusPagamento:
+      type: string
+      enum: [CONFIRMADO, ESTORNADO]
+    StatusSessaoCaixa:
+      type: string
+      enum: [ABERTA, FECHADA, CONFERIDA]
+    TipoMovimentacao:
+      type: string
+      enum: [ABERTURA, VENDA_DINHEIRO, SANGRIA, SUPRIMENTO, ESTORNO_VENDA_DINHEIRO, ESTORNO_MOVIMENTACAO]
+    NaturezaMovimentacao:
+      type: string
+      enum: [ENTRADA, SAIDA]
+    SinalizacaoMovimentacao:
+      type: string
+      enum: [SALDO_ESPERADO_NEGATIVO]
+    SituacaoConferencia:
+      type: string
+      enum: [OK, QUEBRA, SOBRA]
+
+    # ─────────── Auth ───────────
+    LoginRequest:
+      type: object
+      required: [login, senha, dispositivo]
+      properties:
+        login: { type: string, minLength: 3, maxLength: 60 }
+        senha: { type: string, minLength: 6, maxLength: 128 }
+        dispositivo: { type: string, maxLength: 80, description: 'Ex.: TABLET-ATEND-02' }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+    TokenResponse:
+      type: object
+      required: [accessToken, refreshToken, expiraEm, usuario]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiraEm: { type: string, format: date-time }
+        usuario:
+          type: object
+          required: [id, nome, role, lojaId]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            nome: { type: string }
+            role: { $ref: '#/components/schemas/Role' }
+            lojaId: { $ref: '#/components/schemas/Uuid' }
+            authorities:
+              type: array
+              items: { type: string }
+
+    # ─────────── Categorias ───────────
+    CategoriaRequest:
+      type: object
+      required: [nome]
+      properties:
+        parentId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        nome: { type: string, minLength: 2, maxLength: 60 }
+        slug: { type: string, pattern: '^[a-z0-9-]{2,60}$', description: Gerado do nome se omitido }
+        ordem: { type: integer, minimum: 0, default: 0 }
+        ativo: { type: boolean, default: true }
+        estacaoPreparoPadrao: { $ref: '#/components/schemas/EstacaoPreparo' }
+    CategoriaResponse:
+      allOf:
+        - type: object
+          required: [id, nome, slug, ordem, ativo, versao]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            parentId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+            nome: { type: string }
+            slug: { type: string }
+            ordem: { type: integer }
+            ativo: { type: boolean }
+            estacaoPreparoPadrao: { $ref: '#/components/schemas/EstacaoPreparo' }
+            arquivadoEm: { type: [string, 'null'], format: date-time }
+            versao: { type: integer }
+            subcategorias:
+              type: array
+              items: { $ref: '#/components/schemas/CategoriaResponse' }
+        - $ref: '#/components/schemas/Auditoria'
+
+    # ─────────── Produtos ───────────
+    ProdutoBase:
+      type: object
+      required: [categoriaId, sku, nome]
+      properties:
+        categoriaId: { $ref: '#/components/schemas/Uuid' }
+        sku: { type: string, pattern: '^[A-Z0-9_-]{2,30}$' }
+        nome: { type: string, minLength: 2, maxLength: 80 }
+        descricao: { type: string, maxLength: 500 }
+        imagemUrl: { type: string, format: uri, maxLength: 500 }
+        estacaoPreparo:
+          oneOf: [ { $ref: '#/components/schemas/EstacaoPreparo' }, { type: 'null' } ]
+          description: Nulo herda da categoria; ignorado para COMBO
+        ativo: { type: boolean, default: true }
+        ordem: { type: integer, minimum: 0, default: 0 }
+    ProdutoCriarRequest:
+      allOf:
+        - $ref: '#/components/schemas/ProdutoBase'
+        - type: object
+          required: [tipo, precoBaseCentavos]
+          properties:
+            tipo: { $ref: '#/components/schemas/TipoProduto' }
+            precoBaseCentavos: { $ref: '#/components/schemas/Centavos' }
+    ProdutoAtualizarRequest:
+      allOf:
+        - $ref: '#/components/schemas/ProdutoBase'
+        - $ref: '#/components/schemas/Versionado'
+    AlterarPrecoProdutoRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - $ref: '#/components/schemas/MotivoRequest'
+        - type: object
+          required: [precoBaseCentavos]
+          properties:
+            precoBaseCentavos: { $ref: '#/components/schemas/Centavos' }
+    PausaRequest:
+      type: object
+      required: [pausado]
+      properties:
+        pausado: { type: boolean }
+        motivo: { type: string, maxLength: 200, description: Obrigatório quando pausado=true }
+    DisponibilidadeResponse:
+      type: object
+      required: [id, pausado, disponivel, catalogoVersao]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        pausado: { type: boolean }
+        disponivel: { type: boolean, description: Disponibilidade calculada (inclui insumos) }
+        motivoIndisponibilidade: { type: [string, 'null'] }
+        catalogoVersao: { type: integer, format: int64 }
+    ProdutoResumo:
+      type: object
+      required: [id, categoriaId, sku, nome, tipo, precoBaseCentavos, ativo, pausado, disponivel, versao]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        categoriaId: { $ref: '#/components/schemas/Uuid' }
+        sku: { type: string }
+        nome: { type: string }
+        tipo: { $ref: '#/components/schemas/TipoProduto' }
+        precoBaseCentavos: { $ref: '#/components/schemas/Centavos' }
+        imagemUrl: { type: [string, 'null'] }
+        ativo: { type: boolean }
+        pausado: { type: boolean }
+        disponivel: { type: boolean }
+        versao: { type: integer }
+    ProdutoDetalhe:
+      allOf:
+        - $ref: '#/components/schemas/ProdutoResumo'
+        - type: object
+          properties:
+            descricao: { type: [string, 'null'] }
+            estacaoPreparo: { $ref: '#/components/schemas/EstacaoPreparo' }
+            estacaoPreparoEfetiva: { $ref: '#/components/schemas/EstacaoPreparo' }
+            motivoPausa: { type: [string, 'null'] }
+            ordem: { type: integer }
+            grupos:
+              type: array
+              items: { $ref: '#/components/schemas/VinculoGrupoResponse' }
+            insumos:
+              type: array
+              items: { $ref: '#/components/schemas/InsumoResponse' }
+            comboSlots:
+              type: array
+              description: Apenas para tipo COMBO
+              items: { $ref: '#/components/schemas/ComboSlotResponse' }
+        - $ref: '#/components/schemas/Auditoria'
+    VinculoGruposRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - type: object
+          required: [grupos]
+          properties:
+            grupos:
+              type: array
+              items:
+                type: object
+                required: [grupoId, ordem]
+                properties:
+                  grupoId: { $ref: '#/components/schemas/Uuid' }
+                  ordem: { type: integer, minimum: 0 }
+                  minSelecaoOverride: { type: [integer, 'null'], minimum: 0 }
+                  maxSelecaoOverride: { type: [integer, 'null'], minimum: 1 }
+    VinculoGrupoResponse:
+      type: object
+      required: [grupo, ordem, minSelecaoEfetiva, maxSelecaoEfetiva]
+      properties:
+        grupo: { $ref: '#/components/schemas/GrupoModificadorResponse' }
+        ordem: { type: integer }
+        minSelecaoOverride: { type: [integer, 'null'] }
+        maxSelecaoOverride: { type: [integer, 'null'] }
+        minSelecaoEfetiva: { type: integer }
+        maxSelecaoEfetiva: { type: integer }
+    VinculoInsumosRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - type: object
+          required: [insumoIds]
+          properties:
+            insumoIds:
+              type: array
+              uniqueItems: true
+              items: { $ref: '#/components/schemas/Uuid' }
+    HistoricoPrecoResponse:
+      type: object
+      required: [id, tipoPrecoNovo, valorNovo, motivo, vigenteDesde, createdBy]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        tipoPrecoAnterior: { oneOf: [ { $ref: '#/components/schemas/TipoPreco' }, { type: 'null' } ] }
+        valorAnterior: { type: [integer, 'null'] }
+        tipoPrecoNovo: { $ref: '#/components/schemas/TipoPreco' }
+        valorNovo: { type: integer }
+        motivo: { type: string }
+        vigenteDesde: { type: string, format: date-time }
+        createdBy: { $ref: '#/components/schemas/UsuarioRef' }
+
+    # ─────────── Combos ───────────
+    ComboSlotsRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - type: object
+          required: [slots]
+          properties:
+            slots:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required: [nome, minSelecao, maxSelecao, ordem, opcoes]
+                properties:
+                  id: { $ref: '#/components/schemas/Uuid' }
+                  nome: { type: string, minLength: 2, maxLength: 60 }
+                  minSelecao: { type: integer, minimum: 0 }
+                  maxSelecao: { type: integer, minimum: 1 }
+                  ordem: { type: integer, minimum: 0 }
+                  opcoes:
+                    type: array
+                    minItems: 1
+                    items:
+                      type: object
+                      required: [produtoId]
+                      properties:
+                        produtoId: { $ref: '#/components/schemas/Uuid' }
+                        acrescimoCentavos: { allOf: [ { $ref: '#/components/schemas/Centavos' } ], default: 0 }
+                        padrao: { type: boolean, default: false }
+                        ordem: { type: integer, minimum: 0, default: 0 }
+    ComboSlotResponse:
+      type: object
+      required: [id, nome, minSelecao, maxSelecao, ordem, opcoes]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        nome: { type: string }
+        minSelecao: { type: integer }
+        maxSelecao: { type: integer }
+        ordem: { type: integer }
+        opcoes:
+          type: array
+          items:
+            type: object
+            required: [produtoId, produtoNome, acrescimoCentavos, padrao, disponivel]
+            properties:
+              produtoId: { $ref: '#/components/schemas/Uuid' }
+              produtoNome: { type: string }
+              acrescimoCentavos: { $ref: '#/components/schemas/Centavos' }
+              padrao: { type: boolean }
+              disponivel: { type: boolean }
+
+    # ─────────── Modificadores ───────────
+    GrupoModificadorBase:
+      type: object
+      required: [nome, minSelecao, maxSelecao]
+      properties:
+        nome: { type: string, minLength: 2, maxLength: 60 }
+        nomeInterno: { type: string, maxLength: 60 }
+        minSelecao: { type: integer, minimum: 0 }
+        maxSelecao: { type: integer, minimum: 1 }
+        permiteRepeticao: { type: boolean, default: false }
+        ordem: { type: integer, minimum: 0, default: 0 }
+        ativo: { type: boolean, default: true }
+    GrupoModificadorCriarRequest:
+      allOf:
+        - $ref: '#/components/schemas/GrupoModificadorBase'
+        - type: object
+          properties:
+            modificadores:
+              type: array
+              items: { $ref: '#/components/schemas/ModificadorRequest' }
+    GrupoModificadorAtualizarRequest:
+      allOf:
+        - $ref: '#/components/schemas/GrupoModificadorBase'
+        - $ref: '#/components/schemas/Versionado'
+    GrupoModificadorResponse:
+      allOf:
+        - type: object
+          required: [id, nome, minSelecao, maxSelecao, permiteRepeticao, ativo, versao, modificadores]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            nome: { type: string }
+            nomeInterno: { type: [string, 'null'] }
+            minSelecao: { type: integer }
+            maxSelecao: { type: integer }
+            permiteRepeticao: { type: boolean }
+            ordem: { type: integer }
+            ativo: { type: boolean }
+            versao: { type: integer }
+            produtosVinculados: { type: integer, description: Contagem de produtos ativos que usam o grupo }
+            modificadores:
+              type: array
+              items: { $ref: '#/components/schemas/ModificadorResponse' }
+        - $ref: '#/components/schemas/Auditoria'
+    ModificadorRequest:
+      type: object
+      required: [nome, tipoPreco, valorPreco]
+      properties:
+        nome: { type: string, minLength: 1, maxLength: 60 }
+        tipoPreco: { $ref: '#/components/schemas/TipoPreco' }
+        valorPreco:
+          type: integer
+          minimum: -10000
+          description: Centavos se FIXO; basis points se PERCENTUAL; 0 se NENHUM
+        padrao: { type: boolean, default: false }
+        maxQuantidade: { type: integer, minimum: 1, default: 1 }
+        ordem: { type: integer, minimum: 0, default: 0 }
+        ativo: { type: boolean, default: true }
+        insumoIds:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Uuid' }
+    ModificadorAtualizarRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - type: object
+          required: [nome]
+          properties:
+            nome: { type: string, minLength: 1, maxLength: 60 }
+            padrao: { type: boolean }
+            maxQuantidade: { type: integer, minimum: 1 }
+            ordem: { type: integer, minimum: 0 }
+            ativo: { type: boolean }
+            insumoIds:
+              type: array
+              uniqueItems: true
+              items: { $ref: '#/components/schemas/Uuid' }
+    AlterarPrecoModificadorRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - $ref: '#/components/schemas/MotivoRequest'
+        - type: object
+          required: [tipoPreco, valorPreco]
+          properties:
+            tipoPreco: { $ref: '#/components/schemas/TipoPreco' }
+            valorPreco: { type: integer, minimum: -10000 }
+    ModificadorResponse:
+      type: object
+      required: [id, grupoId, nome, tipoPreco, valorPreco, padrao, maxQuantidade, ativo, pausado, disponivel, versao]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        grupoId: { $ref: '#/components/schemas/Uuid' }
+        nome: { type: string }
+        tipoPreco: { $ref: '#/components/schemas/TipoPreco' }
+        valorPreco: { type: integer }
+        padrao: { type: boolean }
+        maxQuantidade: { type: integer }
+        ordem: { type: integer }
+        ativo: { type: boolean }
+        pausado: { type: boolean }
+        disponivel: { type: boolean }
+        motivoIndisponibilidade: { type: [string, 'null'] }
+        insumoIds:
+          type: array
+          items: { $ref: '#/components/schemas/Uuid' }
+        versao: { type: integer }
+
+    # ─────────── Insumos ───────────
+    InsumoRequest:
+      type: object
+      required: [nome]
+      properties:
+        nome: { type: string, minLength: 2, maxLength: 60 }
+        unidade: { type: string, maxLength: 10 }
+    InsumoResponse:
+      type: object
+      required: [id, nome, disponivel, versao]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        nome: { type: string }
+        unidade: { type: [string, 'null'] }
+        disponivel: { type: boolean }
+        motivoIndisponibilidade: { type: [string, 'null'] }
+        versao: { type: integer }
+    InsumoDisponibilidadeRequest:
+      type: object
+      required: [disponivel]
+      properties:
+        disponivel: { type: boolean }
+        motivo: { type: string, maxLength: 200 }
+    InsumoDisponibilidadeResponse:
+      type: object
+      required: [insumo, catalogoVersao, produtosAfetados, modificadoresAfetados]
+      properties:
+        insumo: { $ref: '#/components/schemas/InsumoResponse' }
+        catalogoVersao: { type: integer, format: int64 }
+        produtosAfetados:
+          type: array
+          items:
+            type: object
+            required: [id, nome, disponivel]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              nome: { type: string }
+              disponivel: { type: boolean }
+        modificadoresAfetados:
+          type: array
+          items:
+            type: object
+            required: [id, nome, disponivel]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              nome: { type: string }
+              disponivel: { type: boolean }
+
+    # ─────────── Projeção de catálogo ───────────
+    CatalogoResponse:
+      type: object
+      required: [versao, geradoEm, categorias]
+      properties:
+        versao: { type: integer, format: int64 }
+        geradoEm: { type: string, format: date-time }
+        categorias:
+          type: array
+          items: { $ref: '#/components/schemas/CatalogoCategoria' }
+    CatalogoCategoria:
+      type: object
+      required: [id, nome, ordem, produtos, subcategorias]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        nome: { type: string }
+        ordem: { type: integer }
+        produtos:
+          type: array
+          items: { $ref: '#/components/schemas/CatalogoProduto' }
+        subcategorias:
+          type: array
+          items: { $ref: '#/components/schemas/CatalogoCategoria' }
+    CatalogoProduto:
+      type: object
+      required: [id, nome, tipo, precoBaseCentavos, disponivel, grupos]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        nome: { type: string }
+        descricao: { type: [string, 'null'] }
+        imagemUrl: { type: [string, 'null'] }
+        tipo: { $ref: '#/components/schemas/TipoProduto' }
+        precoBaseCentavos: { $ref: '#/components/schemas/Centavos' }
+        disponivel: { type: boolean }
+        motivoIndisponibilidade: { type: [string, 'null'] }
+        ordem: { type: integer }
+        grupos:
+          type: array
+          items: { $ref: '#/components/schemas/CatalogoGrupo' }
+        comboSlots:
+          type: array
+          items: { $ref: '#/components/schemas/ComboSlotResponse' }
+    CatalogoGrupo:
+      type: object
+      required: [id, nome, minSelecao, maxSelecao, permiteRepeticao, modificadores]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        nome: { type: string }
+        minSelecao: { type: integer, description: Já com override aplicado }
+        maxSelecao: { type: integer, description: Já com override aplicado }
+        permiteRepeticao: { type: boolean }
+        modificadores:
+          type: array
+          items:
+            type: object
+            required: [id, nome, tipoPreco, valorPreco, padrao, maxQuantidade, disponivel]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              nome: { type: string }
+              tipoPreco: { $ref: '#/components/schemas/TipoPreco' }
+              valorPreco: { type: integer }
+              padrao: { type: boolean }
+              maxQuantidade: { type: integer }
+              disponivel: { type: boolean }
+
+    # ─────────── Pedidos ───────────
+    ModificadorSelecionado:
+      type: object
+      required: [modificadorId, quantidade]
+      properties:
+        modificadorId: { $ref: '#/components/schemas/Uuid' }
+        quantidade: { type: integer, minimum: 1, default: 1 }
+    SelecaoComboSlot:
+      type: object
+      required: [slotId, produtoId]
+      properties:
+        slotId: { $ref: '#/components/schemas/Uuid' }
+        produtoId: { $ref: '#/components/schemas/Uuid' }
+        observacao: { type: string, maxLength: 200 }
+        modificadores:
+          type: array
+          items: { $ref: '#/components/schemas/ModificadorSelecionado' }
+    ItemPedidoRequest:
+      type: object
+      required: [produtoId, quantidade]
+      properties:
+        produtoId: { $ref: '#/components/schemas/Uuid' }
+        quantidade: { type: integer, minimum: 1, maximum: 99 }
+        observacao: { type: string, maxLength: 200 }
+        modificadores:
+          type: array
+          description: Para produto SIMPLES
+          items: { $ref: '#/components/schemas/ModificadorSelecionado' }
+        selecoesCombo:
+          type: array
+          description: Obrigatório para produto COMBO
+          items: { $ref: '#/components/schemas/SelecaoComboSlot' }
+    CriarPedidoRequest:
+      type: object
+      required: [origem, modalidadePagamento, itens]
+      properties:
+        origem: { $ref: '#/components/schemas/OrigemPedido' }
+        modalidadePagamento: { $ref: '#/components/schemas/ModalidadePagamento' }
+        identificadorCliente: { type: string, maxLength: 60 }
+        mesa: { type: string, maxLength: 10, description: Obrigatório se POS_PAGO (regra configurável) }
+        observacao: { type: string, maxLength: 300 }
+        catalogoVersao:
+          type: integer
+          format: int64
+          description: Versão do catálogo usada no cliente; divergência de preço gera PRECO_DESATUALIZADO
+        totalEsperadoCentavos:
+          allOf: [ { $ref: '#/components/schemas/Centavos' } ]
+          description: Opcional; usado apenas para detectar divergência, nunca para cobrar
+        itens:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: '#/components/schemas/ItemPedidoRequest' }
+    ItemPedidoModificadorResponse:
+      type: object
+      required: [modificadorId, grupoNome, modificadorNome, quantidade, valorCalculadoCentavos]
+      properties:
+        modificadorId: { $ref: '#/components/schemas/Uuid' }
+        grupoNome: { type: string }
+        modificadorNome: { type: string }
+        tipoPreco: { $ref: '#/components/schemas/TipoPreco' }
+        valorPreco: { type: integer }
+        quantidade: { type: integer }
+        valorCalculadoCentavos: { type: integer, format: int64 }
+    ItemPedidoResponse:
+      type: object
+      required: [id, produtoId, produtoNome, quantidade, precoBaseCentavos, precoUnitarioFinalCentavos, totalCentavos, estacaoPreparo]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        produtoId: { $ref: '#/components/schemas/Uuid' }
+        produtoNome: { type: string }
+        quantidade: { type: integer }
+        precoBaseCentavos: { $ref: '#/components/schemas/Centavos' }
+        precoUnitarioFinalCentavos: { $ref: '#/components/schemas/Centavos' }
+        totalCentavos: { $ref: '#/components/schemas/Centavos' }
+        estacaoPreparo: { $ref: '#/components/schemas/EstacaoPreparo' }
+        observacao: { type: [string, 'null'] }
+        comboSlotNome: { type: [string, 'null'] }
+        modificadores:
+          type: array
+          items: { $ref: '#/components/schemas/ItemPedidoModificadorResponse' }
+        filhos:
+          type: array
+          description: Itens de combo
+          items: { $ref: '#/components/schemas/ItemPedidoResponse' }
+    PedidoResponse:
+      allOf:
+        - type: object
+          required: [id, numeroDiario, dataOperacional, origem, modalidadePagamento, status, versao, itens, subtotalCentavos, descontoCentavos, totalCentavos, totalPagoCentavos, saldoDevedorCentavos]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            numeroDiario: { type: integer }
+            dataOperacional: { type: string, format: date }
+            origem: { $ref: '#/components/schemas/OrigemPedido' }
+            modalidadePagamento: { $ref: '#/components/schemas/ModalidadePagamento' }
+            identificadorCliente: { type: [string, 'null'] }
+            mesa: { type: [string, 'null'] }
+            observacao: { type: [string, 'null'] }
+            status: { $ref: '#/components/schemas/StatusPedido' }
+            versao: { type: integer }
+            itens:
+              type: array
+              items: { $ref: '#/components/schemas/ItemPedidoResponse' }
+            subtotalCentavos: { $ref: '#/components/schemas/Centavos' }
+            descontoCentavos: { $ref: '#/components/schemas/Centavos' }
+            totalCentavos: { $ref: '#/components/schemas/Centavos' }
+            totalPagoCentavos: { $ref: '#/components/schemas/Centavos' }
+            saldoDevedorCentavos: { $ref: '#/components/schemas/Centavos' }
+            pagamentos:
+              type: array
+              items: { $ref: '#/components/schemas/PagamentoResponse' }
+            motivoCancelamento: { type: [string, 'null'] }
+            fiscalStatus: { type: [string, 'null'], description: Reservado para integração fiscal futura }
+            confirmadoEm: { type: [string, 'null'], format: date-time }
+            preparoIniciadoEm: { type: [string, 'null'], format: date-time }
+            prontoEm: { type: [string, 'null'], format: date-time }
+            entregueEm: { type: [string, 'null'], format: date-time }
+        - $ref: '#/components/schemas/Auditoria'
+    CancelarPedidoRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - $ref: '#/components/schemas/MotivoRequest'
+        - type: object
+          properties:
+            registrarPerda: { type: boolean, default: false, description: Registra desperdício quando já em preparo }
+            sessaoCaixaId:
+              allOf: [ { $ref: '#/components/schemas/Uuid' } ]
+              description: Sessão aberta para devolução em dinheiro, se houver pagamento em espécie
+
+    # ─────────── Pagamentos ───────────
+    PagamentoRequest:
+      type: object
+      required: [pedidoId, sessaoCaixaId, metodo, valorCentavos]
+      properties:
+        pedidoId: { $ref: '#/components/schemas/Uuid' }
+        sessaoCaixaId: { $ref: '#/components/schemas/Uuid' }
+        metodo: { $ref: '#/components/schemas/MetodoPagamento' }
+        valorCentavos:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Valor que quita o pedido (≤ saldo devedor)
+        valorRecebidoCentavos:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Obrigatório se DINHEIRO; ≥ valorCentavos
+        nsu: { type: string, maxLength: 40 }
+        autorizacao: { type: string, maxLength: 40 }
+        txidPix: { type: string, maxLength: 64 }
+    PagamentoResponse:
+      type: object
+      required: [id, pedidoId, sessaoCaixaId, metodo, valorCentavos, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        pedidoId: { $ref: '#/components/schemas/Uuid' }
+        sessaoCaixaId: { $ref: '#/components/schemas/Uuid' }
+        metodo: { $ref: '#/components/schemas/MetodoPagamento' }
+        valorCentavos: { $ref: '#/components/schemas/Centavos' }
+        valorRecebidoCentavos: { type: [integer, 'null'] }
+        trocoCentavos: { type: [integer, 'null'] }
+        status: { $ref: '#/components/schemas/StatusPagamento' }
+        nsu: { type: [string, 'null'] }
+        autorizacao: { type: [string, 'null'] }
+        txidPix: { type: [string, 'null'] }
+        pedidoStatusApos: { $ref: '#/components/schemas/StatusPedido' }
+        saldoDevedorAposCentavos: { $ref: '#/components/schemas/Centavos' }
+        motivoEstorno: { type: [string, 'null'] }
+        estornadoEm: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        createdBy: { $ref: '#/components/schemas/UsuarioRef' }
+
+    # ─────────── Caixa ───────────
+    CaixaResponse:
+      type: object
+      required: [id, nome, possuiGaveta, ativo]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        nome: { type: string }
+        possuiGaveta: { type: boolean }
+        ativo: { type: boolean }
+        sessaoAbertaId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        operadorAtual: { oneOf: [ { $ref: '#/components/schemas/UsuarioRef' }, { type: 'null' } ] }
+    AbrirSessaoRequest:
+      type: object
+      required: [caixaId, fundoTrocoCentavos]
+      properties:
+        caixaId: { $ref: '#/components/schemas/Uuid' }
+        fundoTrocoCentavos: { $ref: '#/components/schemas/Centavos' }
+    SessaoCaixaOperadorResponse:
+      type: object
+      description: Visão do operador — NUNCA contém saldo esperado
+      required: [id, caixaId, operador, status, abertaEm, versao]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        caixaId: { $ref: '#/components/schemas/Uuid' }
+        caixaNome: { type: string }
+        operador: { $ref: '#/components/schemas/UsuarioRef' }
+        status: { $ref: '#/components/schemas/StatusSessaoCaixa' }
+        abertaEm: { type: string, format: date-time }
+        fundoTrocoCentavos: { $ref: '#/components/schemas/Centavos' }
+        quantidadePagamentos: { type: integer }
+        pedidosPosPagoEmAberto: { type: integer }
+        versao: { type: integer }
+    SessaoCaixaGerencialResponse:
+      allOf:
+        - $ref: '#/components/schemas/SessaoCaixaOperadorResponse'
+        - type: object
+          properties:
+            fechadaEm: { type: [string, 'null'], format: date-time }
+            conferidaEm: { type: [string, 'null'], format: date-time }
+            conferidaPor: { oneOf: [ { $ref: '#/components/schemas/UsuarioRef' }, { type: 'null' } ] }
+            esperadoDinheiroCentavos: { type: [integer, 'null'] }
+            declaradoDinheiroCentavos: { type: [integer, 'null'] }
+            diferencaDinheiroCentavos: { type: [integer, 'null'], description: Negativo = quebra; positivo = sobra }
+            possuiSinalizacoes: { type: boolean }
+    SangriaRequest:
+      allOf:
+        - $ref: '#/components/schemas/MotivoRequest'
+        - type: object
+          required: [valorCentavos]
+          properties:
+            valorCentavos: { type: integer, format: int64, minimum: 1 }
+            pinAprovador:
+              type: string
+              pattern: '^[0-9]{4,8}$'
+              description: PIN de gerente; obrigatório acima do limite configurado da loja
+    SuprimentoRequest:
+      allOf:
+        - $ref: '#/components/schemas/MotivoRequest'
+        - type: object
+          required: [valorCentavos]
+          properties:
+            valorCentavos: { type: integer, format: int64, minimum: 1 }
+    MovimentacaoOperadorResponse:
+      type: object
+      description: Comprovante ao operador — sem saldo e sem sinalização
+      required: [id, sessaoCaixaId, tipo, natureza, valorCentavos, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        sessaoCaixaId: { $ref: '#/components/schemas/Uuid' }
+        tipo: { $ref: '#/components/schemas/TipoMovimentacao' }
+        natureza: { $ref: '#/components/schemas/NaturezaMovimentacao' }
+        valorCentavos: { $ref: '#/components/schemas/Centavos' }
+        motivo: { type: [string, 'null'] }
+        aprovadoPor: { oneOf: [ { $ref: '#/components/schemas/UsuarioRef' }, { type: 'null' } ] }
+        createdAt: { type: string, format: date-time }
+        createdBy: { $ref: '#/components/schemas/UsuarioRef' }
+    MovimentacaoGerencialResponse:
+      allOf:
+        - $ref: '#/components/schemas/MovimentacaoOperadorResponse'
+        - type: object
+          properties:
+            pagamentoId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+            movimentacaoEstornadaId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+            estornadaPor: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+            sinalizacao: { oneOf: [ { $ref: '#/components/schemas/SinalizacaoMovimentacao' }, { type: 'null' } ] }
+    FechamentoCegoRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - type: object
+          required: [declaracoes]
+          properties:
+            observacao: { type: string, maxLength: 300 }
+            declaracoes:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required: [metodo, valorDeclaradoCentavos]
+                properties:
+                  metodo: { $ref: '#/components/schemas/MetodoPagamento' }
+                  valorDeclaradoCentavos: { $ref: '#/components/schemas/Centavos' }
+                  quantidadeComprovantes: { type: integer, minimum: 0 }
+    FechamentoProtocoloResponse:
+      type: object
+      description: Sem esperado nem diferença
+      required: [sessaoId, protocolo, status, fechadaEm]
+      properties:
+        sessaoId: { $ref: '#/components/schemas/Uuid' }
+        protocolo: { type: string, description: 'Ex.: CX1-20261113-0042' }
+        status: { $ref: '#/components/schemas/StatusSessaoCaixa' }
+        fechadaEm: { type: string, format: date-time }
+        alertas:
+          type: array
+          description: 'Ex.: pedidos pós-pagos em aberto'
+          items: { type: string }
+    ConferenciaResponse:
+      type: object
+      required: [sessaoId, status, porMetodo, composicaoDinheiro]
+      properties:
+        sessaoId: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/StatusSessaoCaixa' }
+        operador: { $ref: '#/components/schemas/UsuarioRef' }
+        abertaEm: { type: string, format: date-time }
+        fechadaEm: { type: string, format: date-time }
+        porMetodo:
+          type: array
+          items:
+            type: object
+            required: [metodo, esperadoCentavos, declaradoCentavos, diferencaCentavos, situacao]
+            properties:
+              metodo: { $ref: '#/components/schemas/MetodoPagamento' }
+              esperadoCentavos: { type: integer, format: int64 }
+              declaradoCentavos: { type: integer, format: int64 }
+              diferencaCentavos: { type: integer, format: int64 }
+              situacao: { $ref: '#/components/schemas/SituacaoConferencia' }
+              quantidadeComprovantesDeclarada: { type: [integer, 'null'] }
+              quantidadePagamentos: { type: integer }
+        composicaoDinheiro:
+          type: object
+          required: [aberturaCentavos, vendasCentavos, suprimentosCentavos, sangriasCentavos, estornosCentavos, esperadoCentavos]
+          properties:
+            aberturaCentavos: { type: integer, format: int64 }
+            vendasCentavos: { type: integer, format: int64 }
+            suprimentosCentavos: { type: integer, format: int64 }
+            sangriasCentavos: { type: integer, format: int64 }
+            estornosCentavos: { type: integer, format: int64 }
+            esperadoCentavos: { type: integer, format: int64 }
+        sinalizacoes:
+          type: array
+          items: { $ref: '#/components/schemas/MovimentacaoGerencialResponse' }
+        observacaoOperador: { type: [string, 'null'] }
+        observacaoConferencia: { type: [string, 'null'] }
+    ConferirSessaoRequest:
+      allOf:
+        - $ref: '#/components/schemas/Versionado'
+        - type: object
+          properties:
+            observacao:
+              type: string
+              maxLength: 500
+              description: Obrigatória quando houver diferença ou sinalização
+    SaldoSessaoResponse:
+      type: object
+      required: [sessaoId, saldoDinheiroEsperadoCentavos, totaisPorMetodo, calculadoEm]
+      properties:
+        sessaoId: { $ref: '#/components/schemas/Uuid' }
+        saldoDinheiroEsperadoCentavos: { type: integer, format: int64 }
+        totaisPorMetodo:
+          type: array
+          items:
+            type: object
+            required: [metodo, totalCentavos]
+            properties:
+              metodo: { $ref: '#/components/schemas/MetodoPagamento' }
+              totalCentavos: { type: integer, format: int64 }
+        calculadoEm: { type: string, format: date-time }
+
+    # ─────────── Cozinha ───────────
+    ItemCozinha:
+      type: object
+      description: Sem valores monetários
+      required: [itemId, produtoNome, quantidade, estacao, modificadores]
+      properties:
+        itemId: { $ref: '#/components/schemas/Uuid' }
+        produtoNome: { type: string }
+        quantidade: { type: integer }
+        estacao: { $ref: '#/components/schemas/EstacaoPreparo' }
+        modificadores:
+          type: array
+          items: { type: string }
+          description: 'Rótulos prontos para exibição (ex.: "2x Dose extra")'
+        observacao: { type: [string, 'null'] }
+        comboNome: { type: [string, 'null'], description: Nome do combo pai, se item de combo }
+    PedidoCozinha:
+      type: object
+      description: Visão da cozinha — sem dados financeiros
+      required: [pedidoId, numeroDiario, status, versao, confirmadoEm, itens]
+      properties:
+        pedidoId: { $ref: '#/components/schemas/Uuid' }
+        numeroDiario: { type: integer }
+        identificadorCliente: { type: [string, 'null'] }
+        mesa: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/StatusPedido' }
+        versao: { type: integer }
+        observacao: { type: [string, 'null'] }
+        confirmadoEm: { type: string, format: date-time }
+        preparoIniciadoEm: { type: [string, 'null'], format: date-time }
+        prontoEm: { type: [string, 'null'], format: date-time }
+        itens:
+          type: array
+          items: { $ref: '#/components/schemas/ItemCozinha' }
+    CozinhaSnapshotResponse:
+      type: object
+      required: [seqAtual, geradoEm, pedidos]
+      properties:
+        seqAtual: { type: integer, format: int64 }
+        geradoEm: { type: string, format: date-time }
+        pedidos:
+          type: array
+          items: { $ref: '#/components/schemas/PedidoCozinha' }
+    PedidoCozinhaEvento:
+      type: object
+      description: Payload de /topic/cozinha/** e de GET /cozinha/eventos
+      required: [seq, tipo, pedidoId, versao, status, ocorridoEm]
+      properties:
+        seq: { type: integer, format: int64 }
+        tipo:
+          type: string
+          enum: [PEDIDO_CONFIRMADO, PREPARO_INICIADO, PEDIDO_PRONTO, PEDIDO_REFEITO, PEDIDO_ENTREGUE, PEDIDO_CANCELADO]
+        pedidoId: { $ref: '#/components/schemas/Uuid' }
+        versao: { type: integer }
+        status: { $ref: '#/components/schemas/StatusPedido' }
+        ocorridoEm: { type: string, format: date-time }
+        motivo: { type: [string, 'null'] }
+        pedido:
+          oneOf: [ { $ref: '#/components/schemas/PedidoCozinha' }, { type: 'null' } ]
+          description: Snapshot completo em PEDIDO_CONFIRMADO e PEDIDO_REFEITO
+
+    # ─────────── Eventos STOMP (documentação) ───────────
+    CatalogoEvento:
+      type: object
+      description: Payload de /topic/catalogo e /topic/disponibilidade
+      required: [versao, tipo, ids]
+      properties:
+        versao: { type: integer, format: int64 }
+        tipo:
+          type: string
+          enum: [PRODUTO_ALTERADO, PRECO_ALTERADO, GRUPO_ALTERADO, CATEGORIA_ALTERADA, DISPONIBILIDADE_ALTERADA, ESTRUTURA_ALTERADA]
+        ids:
+          type: array
+          items: { $ref: '#/components/schemas/Uuid' }
+        disponibilidade:
+          type: array
+          description: Presente em DISPONIBILIDADE_ALTERADA — aplicar sem refetch
+          items:
+            type: object
+            required: [id, entidade, disponivel]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              entidade: { type: string, enum: [PRODUTO, MODIFICADOR, COMBO_OPCAO] }
+              disponivel: { type: boolean }
+    PedidoProntoEvento:
+      type: object
+      description: Payload de /topic/pedidos/prontos
+      required: [pedidoId, numeroDiario]
+      properties:
+        pedidoId: { $ref: '#/components/schemas/Uuid' }
+        numeroDiario: { type: integer }
+        identificadorCliente: { type: [string, 'null'] }
+        mesa: { type: [string, 'null'] }
+
+    # ─────────── Relatórios ───────────
+    PontoFaturamento:
+      type: object
+      required: [periodoInicio, faturamentoCentavos, pedidos]
+      properties:
+        periodoInicio: { type: string, format: date-time }
+        faturamentoCentavos: { type: integer, format: int64 }
+        pedidos: { type: integer }
+    TicketMedioResponse:
+      type: object
+      required: [ticketMedioCentavos, pedidos, faturamentoCentavos]
+      properties:
+        ticketMedioCentavos: { type: integer, format: int64 }
+        pedidos: { type: integer }
+        faturamentoCentavos: { type: integer, format: int64 }
+        ticketMedioAnteriorCentavos: { type: [integer, 'null'] }
+        variacaoBasisPoints: { type: [integer, 'null'] }
+    CelulaPico:
+      type: object
+      required: [diaSemana, hora, pedidos, faturamentoCentavos]
+      properties:
+        diaSemana: { type: integer, minimum: 1, maximum: 7, description: 1 = segunda }
+        hora: { type: integer, minimum: 0, maximum: 23 }
+        pedidos: { type: integer }
+        faturamentoCentavos: { type: integer, format: int64 }
+    ItemCurvaAbc:
+      type: object
+      required: [produtoId, produtoNome, quantidade, faturamentoCentavos, percentualBasisPoints, percentualAcumuladoBasisPoints, classe]
+      properties:
+        produtoId: { $ref: '#/components/schemas/Uuid' }
+        produtoNome: { type: string }
+        quantidade: { type: integer }
+        faturamentoCentavos: { type: integer, format: int64 }
+        percentualBasisPoints: { type: integer }
+        percentualAcumuladoBasisPoints: { type: integer }
+        classe: { type: string, enum: [A, B, C] }
+    TempoPreparoResponse:
+      type: object
+      required: [amostras, p50Segundos, p90Segundos]
+      properties:
+        amostras: { type: integer }
+        p50Segundos: { type: integer }
+        p90Segundos: { type: integer }
+        maximoSegundos: { type: integer }

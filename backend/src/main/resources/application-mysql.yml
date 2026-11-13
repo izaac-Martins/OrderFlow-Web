@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: ${ORDERFLOW_DB_URL:jdbc:mysql://localhost:3306/orderflow?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${ORDERFLOW_DB_USER:root}
+    password: ${ORDERFLOW_DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true

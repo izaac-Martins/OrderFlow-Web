@@ -16,7 +16,7 @@ ECOSSISTEMA_ORDERFLOW/
 
 ---
 
-## 🏗️ Arquitetura
+## Arquitetura
 
 ```mermaid
 flowchart LR
@@ -46,7 +46,7 @@ React 18 + Vite + TypeScript + Tailwind, em modo escuro e otimizado para toque. 
 
 ---
 
-## 📋 Requisitos
+## Requisitos
 
 | Ferramenta | Versão | Observação |
 | :--- | :--- | :--- |
@@ -55,7 +55,7 @@ React 18 + Vite + TypeScript + Tailwind, em modo escuro e otimizado para toque. 
 | **MySQL** | 8.x | **Opcional** — sem MySQL, o perfil `local` usa H2 em modo de compatibilidade MySQL |
 | **Maven** | — | Não é necessário instalar: use o wrapper `mvnw` incluído |
 
-## 🔌 Portas
+## Portas
 
 | Serviço | URL |
 | :--- | :--- |
@@ -67,7 +67,7 @@ React 18 + Vite + TypeScript + Tailwind, em modo escuro e otimizado para toque. 
 
 ---
 
-## 🚀 Rodando localmente após o `git clone`
+## Rodando localmente após o `git clone`
 
 ### 1. Clonar e instalar as dependências dos frontends
 ```bash
@@ -143,7 +143,7 @@ Loja Matriz: `019325f0-8a00-7000-8000-000000000001`
 
 ---
 
-## 🧪 Roteiro de validação ponta a ponta
+## Roteiro de validação ponta a ponta
 
 1. Abra o **Master** (`:5173`) e o **KDS** (`:5174`) lado a lado.
 2. No Master, entre como **Gerente** e abra uma sessão em **Operação de Caixa**.
@@ -177,7 +177,7 @@ Estes atalhos existem para facilitar a demonstração local e **devem ser removi
 
 ---
 
-## 📚 Contratos
+## Contratos
 
 - [`contratos/planejamento_arquitetural_cafeteria.md`](contratos/planejamento_arquitetural_cafeteria.md) — decisões arquiteturais e modelo de domínio
 - [`contratos/openapi.yaml`](contratos/openapi.yaml) — contrato OpenAPI 3.1 da API

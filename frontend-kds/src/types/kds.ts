@@ -9,6 +9,7 @@ export type FiltroEstacaoKds = 'TODAS' | 'BAR' | 'COZINHA';
 export type TipoAtendimento = 'BALCAO' | 'MESA' | 'DELIVERY';
 
 export type StatusPedidoKds =
+  | 'RECEBIDO'
   | 'CONFIRMADO'
   | 'EM_PREPARO'
   | 'PRONTO'

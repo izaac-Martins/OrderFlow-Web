@@ -1,37 +1,67 @@
-# ═══════════════════════════════════════════════════════════════
-# OrderFlow — .gitignore raiz unificado (Backend + Master + KDS)
-# ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# OrderFlow & Cheiro de Café — .gitignore Unificado (Full-Stack Monorepo)
+# Backend (Spring Boot / Maven) + Web Master & KDS (Node / Vite) + Android (Gradle)
+# ═══════════════════════════════════════════════════════════════════════════
 
-# ─── Java / Maven ───
-**/target/
-*.jar
-*.war
-*.class
-.mvn/wrapper/maven-wrapper.jar
-**/.mvn/wrapper/maven-wrapper.jar
-
-# Banco H2 local gerado pelo perfil "local"
-*.mv.db
-*.trace.db
-
-# ─── Node / React / Vite ───
+# ─── Node / Web (React + Vite + TypeScript) ───
+node_modules/
 **/node_modules/
+dist/
 **/dist/
+dist-ssr/
 **/dist-ssr/
-*.local
-*.tsbuildinfo
+build/
+**/build/
 .vite/
+**/.vite/
+*.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.env
+.env.local
+.env.*.local
+.env.*
+!.env.example
 
-# ─── IDEs & Sistema ───
+# ─── Java / Spring Boot / Maven ───
+target/
+**/target/
+.mvn/
+**/.mvn/
+*.class
+*.war
+*.ear
+*.jar
+!**/gradle/wrapper/gradle-wrapper.jar
+*.mv.db
+*.trace.db
+
+# ─── Android / Kotlin / Gradle ───
+.gradle/
+**/.gradle/
+.kotlin/
+**/.kotlin/
+local.properties
+**/local.properties
+.cxx/
+**/.cxx/
+captures/
+**/captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+output-metadata.json
+
+# ─── IDEs & Sistema Operacional ───
 .idea/
-.vscode/
+**/.idea/
 *.iml
 *.iws
 *.ipr
+.vscode/
 .project
 .classpath
 .settings/
@@ -39,10 +69,7 @@ pnpm-debug.log*
 Thumbs.db
 desktop.ini
 
-# ─── Segredos & Logs ───
-.env
-.env.*
-!.env.example
+# ─── Logs & Certificados ───
 *.log
 logs/
 *.pem

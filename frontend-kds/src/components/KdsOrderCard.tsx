@@ -122,18 +122,18 @@ export const KdsOrderCard: React.FC<KdsOrderCardProps> = ({
             </div>
             <span
               className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded ${
-                pedido.status === 'CONFIRMADO'
+                pedido.status === 'RECEBIDO' || pedido.status === 'CONFIRMADO'
                   ? 'bg-sky-500/20 text-sky-300'
                   : pedido.status === 'EM_PREPARO'
                   ? 'bg-amber-500/20 text-amber-300'
                   : 'bg-emerald-500/20 text-emerald-300'
               }`}
             >
-              {pedido.status === 'CONFIRMADO'
-                ? 'Fila / Novo'
+              {pedido.status === 'RECEBIDO' || pedido.status === 'CONFIRMADO'
+                ? 'RECEBIDO (Fila)'
                 : pedido.status === 'EM_PREPARO'
-                ? 'Em Preparo'
-                : 'Pronto p/ Balcão'}
+                ? 'EM PREPARO'
+                : 'PRONTO P/ ENTREGA'}
             </span>
           </div>
         </header>
@@ -218,7 +218,7 @@ export const KdsOrderCard: React.FC<KdsOrderCardProps> = ({
 
       {/* Rodapé com Botões Touch de Alta Densidade */}
       <footer className="p-3.5 pt-2 border-t border-slate-800/80 bg-slate-950/50">
-        {pedido.status === 'CONFIRMADO' && (
+        {(pedido.status === 'RECEBIDO' || pedido.status === 'CONFIRMADO') && (
           <button
             type="button"
             disabled={isBusy}
@@ -251,7 +251,7 @@ export const KdsOrderCard: React.FC<KdsOrderCardProps> = ({
               className="py-3 px-3 rounded-xl bg-slate-800 hover:bg-rose-950/80 hover:border-rose-500/50 border border-slate-700 text-slate-200 hover:text-rose-200 font-bold text-sm flex items-center justify-center gap-1.5 transition cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
-              <span>Refazer</span>
+              <span>Cancelar</span>
             </button>
             <button
               type="button"

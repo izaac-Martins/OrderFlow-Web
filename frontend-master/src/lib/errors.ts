@@ -125,6 +125,42 @@ export function parseApiError(err: unknown): OrderFlowApiError {
   }
 
   if (axios.isAxiosError(err) && err.response?.data) {
+    const rawData = err.response.data as Record<string, unknown>;
+    if (
+      rawData &&
+      typeof rawData === 'object' &&
+      ('mensagem' in rawData || 'erro' in rawData)
+    ) {
+      const errosValidacao = rawData.errosValidacao as
+        | Record<string, string>
+        | undefined;
+      const detalheValidacao = errosValidacao
+        ? Object.entries(errosValidacao)
+            .map(([campo, msg]) => `${campo}: ${msg}`)
+            .join(' | ')
+        : '';
+      const mensagemCompleta = [rawData.mensagem, detalheValidacao]
+        .filter(Boolean)
+        .join(' — ');
+
+      return new OrderFlowApiError({
+        type: 'about:blank',
+        title: String(rawData.erro || 'Erro na requisição'),
+        status: Number(rawData.status || err.response.status || 400),
+        code:
+          err.response.status === 404
+            ? 'RECURSO_NAO_ENCONTRADO'
+            : err.response.status === 409
+            ? 'VERSAO_CONFLITANTE'
+            : err.response.status === 422
+            ? 'TRANSICAO_INVALIDA'
+            : 'VALIDACAO_CAMPOS',
+        detail:
+          mensagemCompleta ||
+          String(rawData.erro || 'Erro ao processar requisição no servidor.'),
+      });
+    }
+
     const data = err.response.data as Partial<ProblemDetail>;
     if (data && typeof data === 'object' && data.code) {
       return new OrderFlowApiError({

@@ -40,7 +40,7 @@ import {
 import { KdsOrderCard } from './components/KdsOrderCard';
 import { DrawerRuptura86 } from './components/DrawerRuptura86';
 
-type FiltroStatusTab = 'TODOS' | 'CONFIRMADO' | 'EM_PREPARO' | 'PRONTO';
+type FiltroStatusTab = 'TODOS' | 'RECEBIDO' | 'EM_PREPARO' | 'PRONTO';
 
 export const App: React.FC = () => {
   const [estacao, setEstacao] = useState<FiltroEstacaoKds>('TODAS');
@@ -229,12 +229,13 @@ export const App: React.FC = () => {
   // Handlers de transição com tratamento de Optimistic Locking (409 TRANSICAO_CONCORRENTE)
   const executarTransicao = async (
     pedido: PedidoCozinhaDto,
-    acao: 'iniciar-preparo' | 'marcar-pronto' | 'refazer' | 'entregar',
+    acao: 'iniciar-preparo' | 'marcar-pronto' | 'refazer' | 'entregar' | 'cancelar',
     motivo?: string
   ) => {
     setLoadingPedidoId(pedido.pedidoId);
     try {
       await transicionarPedidoKds(pedido.pedidoId, acao, pedido.versao, motivo);
+      await sincronizarSnapshotInicial();
     } catch (err: unknown) {
       const prob = err as ProblemDetail;
       if (prob?.code === 'TRANSICAO_CONCORRENTE') {
@@ -276,6 +277,10 @@ export const App: React.FC = () => {
     const filtrados =
       statusTab === 'TODOS'
         ? pedidos
+        : statusTab === 'RECEBIDO'
+        ? pedidos.filter(
+            (p) => p.status === 'RECEBIDO' || p.status === 'CONFIRMADO'
+          )
         : pedidos.filter((p) => p.status === statusTab);
 
     return [...filtrados].sort((a, b) => {
@@ -289,7 +294,9 @@ export const App: React.FC = () => {
 
   // Contadores em tempo real para o cabeçalho
   const contadores = useMemo(() => {
-    const confirmados = pedidos.filter((p) => p.status === 'CONFIRMADO').length;
+    const confirmados = pedidos.filter(
+      (p) => p.status === 'RECEBIDO' || p.status === 'CONFIRMADO'
+    ).length;
     const emPreparo = pedidos.filter((p) => p.status === 'EM_PREPARO').length;
     const prontos = pedidos.filter((p) => p.status === 'PRONTO').length;
     const atrasadosCriticos = pedidos.filter((p) => {
@@ -472,14 +479,14 @@ export const App: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => setStatusTab('CONFIRMADO')}
+              onClick={() => setStatusTab('RECEBIDO')}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 ${
-                statusTab === 'CONFIRMADO'
+                statusTab === 'RECEBIDO'
                   ? 'bg-sky-500 text-slate-950 font-black'
                   : 'bg-slate-800/80 text-sky-300 hover:bg-slate-800'
               }`}
             >
-              <span>Aguardando Início</span>
+              <span>Recebidos (Fila)</span>
               <span className="px-1.5 py-0.5 rounded-md bg-slate-950/30 text-[11px] font-mono">
                 {contadores.confirmados}
               </span>
@@ -592,7 +599,7 @@ export const App: React.FC = () => {
                 }
                 onMarcarPronto={(p) => executarTransicao(p, 'marcar-pronto')}
                 onRefazer={(p, motivo) =>
-                  executarTransicao(p, 'refazer', motivo)
+                  executarTransicao(p, 'cancelar', motivo)
                 }
                 onEntregar={(p) => executarTransicao(p, 'entregar')}
               />

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFFFF"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:id="@+id/txtTitulo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Cafés Tradicionais"
+            android:textColor="#000000"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/imgProduto"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:layout_marginTop="16dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/cafeprensa" />
+
+        <TextView
+            android:id="@+id/txtDescricaoProduto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="Sabor: Frutas Cítricas e Mel. Aroma: Intenso e Floral"
+            android:textColor="#040404" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="SELECIONE O TAMANHO"
+            android:textColor="#040404"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/containerTamanhos"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="TIPO DE CAFÉ"
+            android:textColor="#040404"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/radioGroupTipo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="ADICIONAIS ()"
+            android:textColor="#0D0D0D"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/containerAdicionais"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="QUANTIDADE"
+            android:textColor="#0D0D0D"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+
+            <Button
+                android:id="@+id/btnMenos"
+                android:layout_width="60dp"
+                android:layout_height="45dp"
+                android:backgroundTint="#432A20"
+                android:text="-"
+                android:textColor="#F9F9F9" />
+
+            <TextView
+                android:id="@+id/txtQuantidade"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="1"
+                android:gravity="center"
+                android:textSize="20sp" />
+
+            <Button
+                android:id="@+id/btnMais"
+                android:layout_width="60dp"
+                android:layout_height="45dp"
+                android:backgroundTint="#432A20"
+                android:text="+"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAdicionar"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_marginTop="32dp"
+            android:text="ADICIONAR AO PEDIDO"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            app:backgroundTint="#1DB954"
+            app:cornerRadius="30dp" />
+
+    </LinearLayout>
+</ScrollView>

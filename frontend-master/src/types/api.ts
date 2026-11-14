@@ -37,6 +37,7 @@ export type OrigemPedido = 'APP_ATENDENTE' | 'MASTER_BALCAO';
 export type TipoAtendimento = 'BALCAO' | 'MESA' | 'DELIVERY';
 export type ModalidadePagamento = 'PRE_PAGO' | 'POS_PAGO';
 export type StatusPedido =
+  | 'RECEBIDO'
   | 'CRIADO'
   | 'AGUARDANDO_PAGAMENTO'
   | 'CONFIRMADO'
@@ -45,6 +46,82 @@ export type StatusPedido =
   | 'ENTREGUE'
   | 'CANCELADO'
   | 'ESTORNADO';
+
+// ─────────────────────────── Contratos Canônicos Cheiro de Café (Spring Boot + MySQL) ───────────────────────────
+
+export type CategoriaProdutoApi = 'BEBIDAS' | 'DOCES' | 'SALGADOS';
+
+export type SubcategoriaBebidaApi =
+  | 'TRADICIONAL'
+  | 'ESPECIAL'
+  | 'SUCOS_IOGURTES'
+  | 'REFRIGERANTES';
+
+export type StatusPedidoCanonico =
+  | 'RECEBIDO'
+  | 'EM_PREPARO'
+  | 'PRONTO'
+  | 'ENTREGUE'
+  | 'CANCELADO';
+
+export interface VarianteApiDTO {
+  id?: number | null;
+  nome: string;
+  tamanho?: string;
+  preco: number;
+}
+
+export interface AdicionalApiDTO {
+  id?: number | null;
+  nome: string;
+  preco: number;
+  vinculo: string; // 'PRODUTO' | 'CATEGORIA_BEBIDAS' | 'CATEGORIA_DOCES' | 'CATEGORIA_SALGADOS'
+  escopo?: string;
+}
+
+export interface ProdutoApiDTO {
+  id?: number | null;
+  nome: string;
+  descricao?: string | null;
+  preco: number;
+  precoBase?: number;
+  ativo?: boolean;
+  categoria: CategoriaProdutoApi;
+  subcategoria?: string | null;
+  variantes: VarianteApiDTO[];
+  adicionais: AdicionalApiDTO[];
+}
+
+export interface ItemPedidoApiDTO {
+  id?: number | null;
+  produtoId?: number | null;
+  nomeProduto: string;
+  tamanhoEscolhido?: string | null;
+  tipoGraoEscolhido?: string | null;
+  adicionaisEscolhidos?: string | null;
+  quantidade: number;
+  precoTotalItem: number;
+  precoUnitario?: number;
+  pagadorItem?: string | null;
+  observacoes?: string | null;
+}
+
+export interface PedidoRequestApiDTO {
+  numeroMesa: number;
+  valorTotal?: number;
+  itens: ItemPedidoApiDTO[];
+}
+
+export interface PedidoResponseApiDTO {
+  id: number;
+  versao?: number;
+  numeroMesa: number;
+  status: 'RECEBIDO' | 'EM_PREPARO' | 'PRONTO' | 'ENTREGUE' | 'CANCELADO';
+  valorTotal: number;
+  criadoEm: string;
+  dataHora?: string;
+  itens: ItemPedidoApiDTO[];
+}
 
 export type CodigoErro =
   | 'NAO_AUTENTICADO'

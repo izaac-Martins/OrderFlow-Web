@@ -3,304 +3,188 @@ import { useNavigate } from 'react-router-dom';
 import {
   ShoppingBag,
   Plus,
-  Minus,
   Trash2,
   CheckCircle2,
   AlertTriangle,
   Search,
-  Banknote,
-  CreditCard,
-  QrCode,
   Utensils,
+  Coffee,
+  Sparkles,
+  User,
 } from 'lucide-react';
 import { apiRequest } from '../lib/http';
 import { parseApiError } from '../lib/errors';
 import {
-  calcPercentualHalfEven,
-  formatCentavos,
-  parseReaisToCentavos,
+  formatBigDecimalReais,
+  roundBigDecimalHalfUp,
 } from '../lib/formatters';
-import { stompManager } from '../lib/stompClient';
-import { useAuth } from '../context/AuthContext';
 import type {
-  Categoria,
-  MetodoPagamento,
-  ModalidadePagamento,
-  ModificadorSelecionadoRequest,
-  PedidoResponse,
-  Produto,
-  SelecaoComboSlotRequest,
-  SessaoCaixaGerencial,
-  TipoAtendimento,
+  AdicionalApiDTO,
+  CategoriaProdutoApi,
+  ItemPedidoApiDTO,
+  PedidoRequestApiDTO,
+  PedidoResponseApiDTO,
+  ProdutoApiDTO,
+  VarianteApiDTO,
 } from '../types/api';
 
 interface CarrinhoItem {
   localId: string;
-  produto: Produto;
+  produto: ProdutoApiDTO;
   quantidade: number;
-  observacao: string;
-  modificadores: Array<{
-    modificadorId: string;
-    nome: string;
-    quantidade: number;
-    adicionalUnitarioCentavos: number;
-  }>;
-  selecoesCombo: Array<{
-    slotId: string;
-    slotNome: string;
-    produtoId: string;
-    produtoNome: string;
-    acrescimoCentavos: number;
-  }>;
-  unitarioFinalCentavos: number;
+  varianteSelecionada: VarianteApiDTO | null;
+  tipoGraoEscolhido: string | null;
+  adicionaisSelecionados: AdicionalApiDTO[];
+  pagadorItem: string;
+  observacoes: string;
+  precoUnitarioFinal: number;
 }
 
+const OPCOES_GRAO = [
+  'Tradicional (Blend da Casa)',
+  'Arábica Especial 100%',
+  'Descafeinado',
+];
+
 export const PdvPage: React.FC = () => {
-  const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [produtos, setProdutos] = useState<Produto[]>([]);
-  const [sessaoAberta, setSessaoAberta] =
-    useState<SessaoCaixaGerencial | null>(null);
-  const [categoriaFiltro, setCategoriaFiltro] = useState<string>('TODAS');
+  const [produtos, setProdutos] = useState<ProdutoApiDTO[]>([]);
+  const [adicionaisGlobais, setAdicionaisGlobais] = useState<AdicionalApiDTO[]>([]);
+  const [categoriaFiltro, setCategoriaFiltro] = useState<'TODAS' | CategoriaProdutoApi>('TODAS');
   const [busca, setBusca] = useState('');
 
-  // Carrinho e Configuração do Pedido
+  // Comanda / Carrinho
   const [carrinho, setCarrinho] = useState<CarrinhoItem[]>([]);
-  const [tipoAtendimento, setTipoAtendimento] =
-    useState<TipoAtendimento>('BALCAO');
-  const [modalidadePagamento, setModalidadePagamento] =
-    useState<ModalidadePagamento>('PRE_PAGO');
-  const [identificadorCliente, setIdentificadorCliente] =
-    useState('Cliente Balcão');
-  const [mesa, setMesa] = useState('');
-  const [observacaoPedido, setObservacaoPedido] = useState('');
-  const [descontoReais, setDescontoReais] = useState('0,00');
+  const [numeroMesa, setNumeroMesa] = useState<string>('1');
 
-  // Pagamento Inicial (para Pré-Pago)
-  const [metodoPagamento, setMetodoPagamento] =
-    useState<MetodoPagamento>('DINHEIRO');
-  const [valorRecebidoReais, setValorRecebidoReais] = useState('50,00');
-
-  // Modal de Personalização de Item (Modificadores / Combo Slots)
-  const [produtoCustomizando, setProdutoCustomizando] =
-    useState<Produto | null>(null);
-  const [qtdModal, setQtdModal] = useState(1);
-  const [obsItemModal, setObsItemModal] = useState('');
-  const [modsSelecionadosModal, setModsSelecionadosModal] = useState<
-    Record<string, number>
-  >({});
-  const [slotsSelecionadosModal, setSlotsSelecionadosModal] = useState<
-    Record<string, string>
-  >({});
+  // Modal de Personalização do Produto
+  const [produtoCustomizando, setProdutoCustomizando] = useState<ProdutoApiDTO | null>(null);
+  const [varianteIdxModal, setVarianteIdxModal] = useState<number>(-1);
+  const [graoModal, setGraoModal] = useState<string>(OPCOES_GRAO[0]);
+  const [adicionaisModalIds, setAdicionaisModalIds] = useState<Record<string, boolean>>({});
+  const [qtdModal, setQtdModal] = useState<number>(1);
+  const [pagadorModal, setPagadorModal] = useState<string>('Mesa Geral');
+  const [obsItemModal, setObsItemModal] = useState<string>('');
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [pedidoRecemCriado, setPedidoRecemCriado] =
-    useState<PedidoResponse | null>(null);
+  const [pedidoRecemCriado, setPedidoRecemCriado] = useState<PedidoResponseApiDTO | null>(null);
 
-  const carregarCatalogoESessao = useCallback(async () => {
+  const carregarCatalogo = useCallback(async () => {
     try {
-      const [cats, prods, sessoes] = await Promise.all([
-        apiRequest<Categoria[]>({ method: 'GET', url: '/categorias' }),
-        apiRequest<Produto[]>({ method: 'GET', url: '/produtos' }),
-        apiRequest<SessaoCaixaGerencial[]>({
+      const [prods, globais] = await Promise.all([
+        apiRequest<ProdutoApiDTO[]>({ method: 'GET', url: '/produtos' }),
+        apiRequest<AdicionalApiDTO[]>({
           method: 'GET',
-          url: '/caixa/sessoes',
-        }),
+          url: '/produtos/adicionais-globais',
+        }).catch(() => [] as AdicionalApiDTO[]),
       ]);
-      setCategorias(cats);
-      setProdutos(prods);
-      setSessaoAberta(sessoes.find((s) => s.status === 'ABERTA') || null);
+      setProdutos(Array.isArray(prods) ? prods : []);
+      setAdicionaisGlobais(Array.isArray(globais) ? globais : []);
     } catch (err) {
       setErrorMsg(parseApiError(err).message);
     }
   }, []);
 
   useEffect(() => {
-    carregarCatalogoESessao();
-  }, [carregarCatalogoESessao]);
+    carregarCatalogo();
+  }, [carregarCatalogo]);
 
-  useEffect(() => {
-    const lojaId = user?.lojaId || '019325f0-8a00-7000-8000-000000000001';
-    return stompManager.subscribe(
-      `/topic/lojas/${lojaId}/disponibilidade`,
-      () => {
-        carregarCatalogoESessao();
-      }
-    );
-  }, [user?.lojaId, carregarCatalogoESessao]);
-
-  const abrirModalProduto = (prod: Produto) => {
-    if (!prod.disponivel) return;
+  const abrirModalProduto = (prod: ProdutoApiDTO) => {
+    if (prod.ativo === false) return;
     setErrorMsg(null);
     setProdutoCustomizando(prod);
+    setVarianteIdxModal(prod.variantes && prod.variantes.length > 0 ? 0 : -1);
+    setGraoModal(OPCOES_GRAO[0]);
+    setAdicionaisModalIds({});
     setQtdModal(1);
+    setPagadorModal('Mesa Geral');
     setObsItemModal('');
-
-    // Pré-seleciona modificadores padrão
-    const padroes: Record<string, number> = {};
-    for (const v of prod.gruposModificadores || []) {
-      for (const m of v.grupo.modificadores) {
-        if (m.padrao && m.disponivel) {
-          padroes[m.id] = 1;
-        }
-      }
-    }
-    setModsSelecionadosModal(padroes);
-
-    // Pré-seleciona opções padrão de cada slot de combo
-    const slotsPadrao: Record<string, string> = {};
-    for (const slot of prod.comboSlots || []) {
-      const opPadrao =
-        slot.opcoes.find((o) => o.padrao && o.disponivel) ||
-        slot.opcoes.find((o) => o.disponivel);
-      if (opPadrao) {
-        slotsPadrao[slot.id] = opPadrao.produtoId;
-      }
-    }
-    setSlotsSelecionadosModal(slotsPadrao);
   };
+
+  const adicionaisDisponiveisParaModal = useMemo(() => {
+    if (!produtoCustomizando) return [];
+    const doProduto = produtoCustomizando.adicionais || [];
+    const escopoEsperado = `CATEGORIA_${produtoCustomizando.categoria}`;
+    const daCategoria = adicionaisGlobais.filter((g) => g.escopo === escopoEsperado);
+
+    const mapa = new Map<string, AdicionalApiDTO>();
+    for (const a of [...doProduto, ...daCategoria]) {
+      const key = `${a.nome.toLowerCase()}-${a.escopo || 'PRODUTO'}`;
+      if (!mapa.has(key)) {
+        mapa.set(key, a);
+      }
+    }
+    return Array.from(mapa.values());
+  }, [produtoCustomizando, adicionaisGlobais]);
 
   const precoUnitarioPreviewModal = useMemo(() => {
     if (!produtoCustomizando) return 0;
-    let totalUnit = produtoCustomizando.precoBaseCentavos;
+    const vars = produtoCustomizando.variantes || [];
+    const precoBaseOuVariante =
+      varianteIdxModal >= 0 && vars[varianteIdxModal]
+        ? Number(vars[varianteIdxModal].preco)
+        : Number(produtoCustomizando.precoBase || 0);
 
-    if (produtoCustomizando.tipo === 'SIMPLES') {
-      for (const v of produtoCustomizando.gruposModificadores || []) {
-        for (const m of v.grupo.modificadores) {
-          const qtd = modsSelecionadosModal[m.id] || 0;
-          if (qtd > 0) {
-            if (m.tipoPreco === 'FIXO') {
-              totalUnit += m.valorPreco * qtd;
-            } else if (m.tipoPreco === 'PERCENTUAL') {
-              totalUnit +=
-                calcPercentualHalfEven(
-                  produtoCustomizando.precoBaseCentavos,
-                  m.valorPreco
-                ) * qtd;
-            }
-          }
-        }
+    let somaAdicionais = 0;
+    adicionaisDisponiveisParaModal.forEach((adic, idx) => {
+      const key = `${adic.id ?? idx}-${adic.nome}`;
+      if (adicionaisModalIds[key]) {
+        somaAdicionais = roundBigDecimalHalfUp(somaAdicionais + Number(adic.preco || 0));
       }
-    } else {
-      for (const slot of produtoCustomizando.comboSlots || []) {
-        const chosenProdId = slotsSelecionadosModal[slot.id];
-        const op = slot.opcoes.find((o) => o.produtoId === chosenProdId);
-        if (op) {
-          totalUnit += op.acrescimoCentavos;
-        }
-      }
-    }
-    return totalUnit;
-  }, [produtoCustomizando, modsSelecionadosModal, slotsSelecionadosModal]);
+    });
+
+    return roundBigDecimalHalfUp(precoBaseOuVariante + somaAdicionais);
+  }, [
+    produtoCustomizando,
+    varianteIdxModal,
+    adicionaisDisponiveisParaModal,
+    adicionaisModalIds,
+  ]);
 
   const confirmarItemNoCarrinho = () => {
     if (!produtoCustomizando) return;
-    setErrorMsg(null);
+    const vars = produtoCustomizando.variantes || [];
+    const varianteSelecionada =
+      varianteIdxModal >= 0 && vars[varianteIdxModal]
+        ? vars[varianteIdxModal]
+        : null;
 
-    // Valida grupos obrigatórios
-    if (produtoCustomizando.tipo === 'SIMPLES') {
-      for (const v of produtoCustomizando.gruposModificadores || []) {
-        const totalGrupo = v.grupo.modificadores.reduce(
-          (acc, m) => acc + (modsSelecionadosModal[m.id] || 0),
-          0
-        );
-        if (totalGrupo < v.minSelecaoEfetiva) {
-          setErrorMsg(
-            `O grupo obrigatório '${v.grupo.nome}' exige pelo menos ${v.minSelecaoEfetiva} seleção(ões).`
-          );
-          return;
-        }
-        if (totalGrupo > v.maxSelecaoEfetiva) {
-          setErrorMsg(
-            `O grupo '${v.grupo.nome}' permite no máximo ${v.maxSelecaoEfetiva} seleção(ões).`
-          );
-          return;
-        }
+    const selecionados: AdicionalApiDTO[] = [];
+    adicionaisDisponiveisParaModal.forEach((adic, idx) => {
+      const key = `${adic.id ?? idx}-${adic.nome}`;
+      if (adicionaisModalIds[key]) {
+        selecionados.push(adic);
       }
-    } else {
-      for (const slot of produtoCustomizando.comboSlots || []) {
-        if (slot.minSelecao >= 1 && !slotsSelecionadosModal[slot.id]) {
-          setErrorMsg(`Selecione uma opção para o slot '${slot.nome}'.`);
-          return;
-        }
-      }
-    }
-
-    const modsArray: CarrinhoItem['modificadores'] = [];
-    for (const v of produtoCustomizando.gruposModificadores || []) {
-      for (const m of v.grupo.modificadores) {
-        const qtd = modsSelecionadosModal[m.id] || 0;
-        if (qtd > 0) {
-          const adic =
-            m.tipoPreco === 'FIXO'
-              ? m.valorPreco * qtd
-              : m.tipoPreco === 'PERCENTUAL'
-              ? calcPercentualHalfEven(
-                  produtoCustomizando.precoBaseCentavos,
-                  m.valorPreco
-                ) * qtd
-              : 0;
-          modsArray.push({
-            modificadorId: m.id,
-            nome: m.nome,
-            quantidade: qtd,
-            adicionalUnitarioCentavos: adic,
-          });
-        }
-      }
-    }
-
-    const selecoesComboArray: CarrinhoItem['selecoesCombo'] = [];
-    for (const slot of produtoCustomizando.comboSlots || []) {
-      const pid = slotsSelecionadosModal[slot.id];
-      const op = slot.opcoes.find((o) => o.produtoId === pid);
-      if (op) {
-        selecoesComboArray.push({
-          slotId: slot.id,
-          slotNome: slot.nome,
-          produtoId: op.produtoId,
-          produtoNome: op.produtoNome,
-          acrescimoCentavos: op.acrescimoCentavos,
-        });
-      }
-    }
+    });
 
     const novoItem: CarrinhoItem = {
       localId: `${produtoCustomizando.id}-${Date.now()}`,
       produto: produtoCustomizando,
       quantidade: qtdModal,
-      observacao: obsItemModal,
-      modificadores: modsArray,
-      selecoesCombo: selecoesComboArray,
-      unitarioFinalCentavos: precoUnitarioPreviewModal,
+      varianteSelecionada,
+      tipoGraoEscolhido:
+        produtoCustomizando.categoria === 'BEBIDAS' ? graoModal : null,
+      adicionaisSelecionados: selecionados,
+      pagadorItem: pagadorModal.trim() || 'Mesa Geral',
+      observacoes: obsItemModal.trim(),
+      precoUnitarioFinal: precoUnitarioPreviewModal,
     };
 
     setCarrinho((prev) => [...prev, novoItem]);
     setProdutoCustomizando(null);
   };
 
-  const subtotalCentavos = useMemo(
-    () =>
-      carrinho.reduce(
-        (acc, i) => acc + i.unitarioFinalCentavos * i.quantidade,
-        0
-      ),
-    [carrinho]
-  );
-
-  const descontoCentavos = useMemo(
-    () => Math.max(0, parseReaisToCentavos(descontoReais)),
-    [descontoReais]
-  );
-
-  const totalPedidoCentavos = Math.max(0, subtotalCentavos - descontoCentavos);
-  const valorRecebidoCentavos = parseReaisToCentavos(valorRecebidoReais);
-  const trocoEstimadoCentavos =
-    metodoPagamento === 'DINHEIRO'
-      ? Math.max(0, valorRecebidoCentavos - totalPedidoCentavos)
-      : 0;
+  const valorTotalPedido = useMemo(() => {
+    const soma = carrinho.reduce(
+      (acc, item) =>
+        roundBigDecimalHalfUp(
+          acc + roundBigDecimalHalfUp(item.precoUnitarioFinal * item.quantidade)
+        ),
+      0
+    );
+    return roundBigDecimalHalfUp(soma);
+  }, [carrinho]);
 
   const handleFinalizarPedido = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -308,94 +192,62 @@ export const PdvPage: React.FC = () => {
     setErrorMsg(null);
     setPedidoRecemCriado(null);
 
-    const itensPayload = carrinho.map((item) => ({
+    const mesaNum = Math.max(1, parseInt(numeroMesa, 10) || 1);
+
+    const itensPayload: ItemPedidoApiDTO[] = carrinho.map((item) => ({
       produtoId: item.produto.id,
+      nomeProduto: item.produto.nome,
       quantidade: item.quantidade,
-      observacao: item.observacao || undefined,
-      modificadores: item.modificadores.map(
-        (m): ModificadorSelecionadoRequest => ({
-          modificadorId: m.modificadorId,
-          quantidade: m.quantidade,
-        })
+      precoTotalItem: roundBigDecimalHalfUp(
+        item.precoUnitarioFinal * item.quantidade
       ),
-      selecoesCombo: item.selecoesCombo.map(
-        (s): SelecaoComboSlotRequest => ({
-          slotId: s.slotId,
-          produtoId: s.produtoId,
-        })
-      ),
+      precoUnitario: roundBigDecimalHalfUp(item.precoUnitarioFinal),
+      tamanhoEscolhido:
+        item.varianteSelecionada?.tamanho ||
+        item.varianteSelecionada?.nome ||
+        null,
+      tipoGraoEscolhido: item.tipoGraoEscolhido || null,
+      adicionaisEscolhidos:
+        item.adicionaisSelecionados.length > 0
+          ? item.adicionaisSelecionados.map((a) => a.nome).join(', ')
+          : null,
+      pagadorItem: item.pagadorItem || 'Mesa Geral',
+      observacoes: item.observacoes || null,
     }));
 
+    const payload: PedidoRequestApiDTO = {
+      numeroMesa: mesaNum,
+      valorTotal: valorTotalPedido,
+      itens: itensPayload,
+    };
+
     try {
-      const criado = await apiRequest<PedidoResponse>({
+      const criado = await apiRequest<PedidoResponseApiDTO>({
         method: 'POST',
         url: '/pedidos',
-        data: {
-          origem: 'MASTER_BALCAO',
-          tipoAtendimento,
-          modalidadePagamento,
-          sessaoCaixaId: sessaoAberta?.id,
-          identificadorCliente,
-          mesa: tipoAtendimento === 'MESA' ? mesa || '01' : undefined,
-          observacao: observacaoPedido || undefined,
-          descontoCentavos,
-          totalEsperadoCentavos: totalPedidoCentavos,
-          pagamentoInicial:
-            modalidadePagamento === 'PRE_PAGO'
-              ? {
-                  sessaoCaixaId: sessaoAberta?.id,
-                  metodo: metodoPagamento,
-                  valorCentavos: totalPedidoCentavos,
-                  valorRecebidoCentavos:
-                    metodoPagamento === 'DINHEIRO'
-                      ? Math.max(totalPedidoCentavos, valorRecebidoCentavos)
-                      : undefined,
-                }
-              : undefined,
-          itens: itensPayload,
-        },
+        data: payload,
       });
       setPedidoRecemCriado(criado);
       setCarrinho([]);
-      setObservacaoPedido('');
     } catch (err) {
       setErrorMsg(parseApiError(err).message);
     }
   };
 
-  const produtosFiltrados = produtos.filter((p) => {
-    const matchCat =
-      categoriaFiltro === 'TODAS' || p.categoriaId === categoriaFiltro;
-    const matchBusca =
-      !busca.trim() ||
-      p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-      p.sku.toLowerCase().includes(busca.toLowerCase());
-    return matchCat && matchBusca;
-  });
+  const produtosFiltrados = useMemo(() => {
+    return produtos.filter((p) => {
+      const matchCat =
+        categoriaFiltro === 'TODAS' || p.categoria === categoriaFiltro;
+      const matchBusca =
+        !busca.trim() ||
+        p.nome.toLowerCase().includes(busca.toLowerCase()) ||
+        (p.descricao || '').toLowerCase().includes(busca.toLowerCase());
+      return matchCat && matchBusca;
+    });
+  }, [produtos, categoriaFiltro, busca]);
 
   return (
     <div className="space-y-6">
-      {/* Alerta se não houver sessão de caixa aberta */}
-      {!sessaoAberta && (
-        <div className="rounded-2xl bg-amber-50 border border-amber-300 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 text-xs font-semibold text-amber-900">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-            <span>
-              Nenhuma sessão de caixa aberta no momento. Pedidos{' '}
-              <strong>PRÉ-PAGOS</strong> exigem sessão aberta para registrar o
-              recebimento; ou abra o caixa em <strong>Operação de Caixa</strong>.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate('/caixa')}
-            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shrink-0"
-          >
-            Abrir Sessão de Caixa
-          </button>
-        </div>
-      )}
-
       {errorMsg && (
         <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-xs font-semibold text-rose-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -417,26 +269,21 @@ export const PdvPage: React.FC = () => {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-emerald-300 text-xs font-bold uppercase">
               <CheckCircle2 className="w-4 h-4" />
-              <span>Pedido Emitido e Enviado ao KDS via STOMP</span>
+              <span>Pedido Registrado na API Real (MySQL cheirocafe_db)</span>
             </div>
             <h3 className="text-lg font-extrabold">
-              Senha #{pedidoRecemCriado.numeroDiario} —{' '}
-              {pedidoRecemCriado.identificadorCliente} (Status:{' '}
-              {pedidoRecemCriado.status})
+              Pedido #{pedidoRecemCriado.id} — Mesa {pedidoRecemCriado.numeroMesa}{' '}
+              (Status: {pedidoRecemCriado.status})
             </h3>
             <p className="text-xs text-emerald-100">
-              Total: {formatCentavos(pedidoRecemCriado.valorTotalCentavos)}
-              {pedidoRecemCriado.pagamentos[0]?.trocoCentavos
-                ? ` · Troco em espécie: ${formatCentavos(
-                    pedidoRecemCriado.pagamentos[0].trocoCentavos
-                  )}`
-                : ''}
+              Valor Total (BigDecimal HALF_UP):{' '}
+              {formatBigDecimalReais(pedidoRecemCriado.valorTotal)}
             </p>
           </div>
           <button
             type="button"
             onClick={() => navigate('/pedidos')}
-            className="px-4 py-2 rounded-xl bg-white text-emerald-950 text-xs font-bold shrink-0"
+            className="px-4 py-2 rounded-xl bg-white text-emerald-950 text-xs font-bold shrink-0 cursor-pointer"
           >
             Acompanhar no Monitor
           </button>
@@ -444,7 +291,7 @@ export const PdvPage: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Coluna Esquerda (7 cols): Grade de Produtos do PDV */}
+        {/* Coluna Esquerda (7 cols): Grade de Produtos */}
         <div className="lg:col-span-7 space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
             <div className="relative">
@@ -453,98 +300,96 @@ export const PdvPage: React.FC = () => {
                 type="text"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar produto por nome ou código SKU..."
+                placeholder="Buscar produto no cardápio..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:border-amber-600 outline-none"
               />
             </div>
 
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              <button
-                type="button"
-                onClick={() => setCategoriaFiltro('TODAS')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                  categoriaFiltro === 'TODAS'
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                Todos ({produtos.length})
-              </button>
-              {categorias.map((c) => (
+              {(
+                ['TODAS', 'BEBIDAS', 'DOCES', 'SALGADOS'] as Array<
+                  'TODAS' | CategoriaProdutoApi
+                >
+              ).map((cat) => (
                 <button
-                  key={c.id}
+                  key={cat}
                   type="button"
-                  onClick={() => setCategoriaFiltro(c.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                    categoriaFiltro === c.id
-                      ? 'bg-amber-600 text-white'
+                  onClick={() => setCategoriaFiltro(cat)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+                    categoriaFiltro === cat
+                      ? 'bg-slate-900 text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  {c.nome}
+                  {cat === 'TODAS' ? `Todos (${produtos.length})` : cat}
                 </button>
               ))}
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {produtosFiltrados.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                disabled={!p.disponivel}
-                onClick={() => abrirModalProduto(p)}
-                className={`text-left p-4 rounded-2xl border transition flex flex-col justify-between gap-3 shadow-sm ${
-                  p.disponivel
-                    ? 'bg-white border-slate-200 hover:border-amber-500 hover:shadow-md'
-                    : 'bg-rose-50/60 border-rose-200 opacity-75 cursor-not-allowed'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                      {p.sku} · {p.tipo}
+            {produtosFiltrados.map((p) => {
+              const ativo = p.ativo !== false;
+              const menorPreco =
+                p.variantes && p.variantes.length > 0
+                  ? Math.min(...p.variantes.map((v) => Number(v.preco)))
+                  : Number(p.precoBase || 0);
+
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={!ativo}
+                  onClick={() => abrirModalProduto(p)}
+                  className={`text-left p-4 rounded-2xl border transition flex flex-col justify-between gap-3 shadow-sm cursor-pointer ${
+                    ativo
+                      ? 'bg-white border-slate-200 hover:border-amber-500 hover:shadow-md'
+                      : 'bg-rose-50/60 border-rose-200 opacity-75 cursor-not-allowed'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                        {p.categoria}
+                        {p.subcategoria ? ` · ${p.subcategoria}` : ''}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                          ativo
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-600 text-white'
+                        }`}
+                      >
+                        {ativo ? 'ATIVO' : 'INATIVO'}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 mt-2">
+                      {p.nome}
+                    </h3>
+                    {p.descricao && (
+                      <p className="text-xs text-slate-500 line-clamp-2 mt-0.5">
+                        {p.descricao}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span className="text-base font-extrabold text-amber-700 font-mono">
+                      {p.variantes && p.variantes.length > 0 ? 'A partir de ' : ''}
+                      {formatBigDecimalReais(menorPreco)}
                     </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        p.disponivel
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-rose-600 text-white'
-                      }`}
-                    >
-                      {p.disponivel ? p.estacaoPreparoEfetiva : 'ESGOTADO (86)'}
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Adicionar</span>
                     </span>
                   </div>
-                  <h3 className="text-sm font-bold text-slate-900 mt-2">
-                    {p.nome}
-                  </h3>
-                  {p.descricao && (
-                    <p className="text-xs text-slate-500 line-clamp-2 mt-0.5">
-                      {p.descricao}
-                    </p>
-                  )}
-                  {!p.disponivel && p.motivoIndisponibilidade && (
-                    <p className="text-[11px] font-semibold text-rose-700 mt-1">
-                      {p.motivoIndisponibilidade}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                  <span className="text-base font-extrabold text-amber-700">
-                    {formatCentavos(p.precoBaseCentavos)}
-                  </span>
-                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Selecionar</span>
-                  </span>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Coluna Direita (5 cols): Comanda / Carrinho & Checkout */}
+        {/* Coluna Direita (5 cols): Comanda PDV */}
         <div className="lg:col-span-5">
           <form
             onSubmit={handleFinalizarPedido}
@@ -554,22 +399,36 @@ export const PdvPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <ShoppingBag className="w-5 h-5 text-amber-600" />
                 <h2 className="text-base font-extrabold text-slate-900">
-                  Comanda PDV ({carrinho.length} item(ns))
+                  Comanda Balcão / Mesa ({carrinho.length} item(ns))
                 </h2>
               </div>
               {carrinho.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setCarrinho([])}
-                  className="text-xs font-semibold text-rose-600 hover:underline"
+                  className="text-xs font-semibold text-rose-600 hover:underline cursor-pointer"
                 >
                   Limpar
                 </button>
               )}
             </div>
 
+            <div>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                Número da Mesa / Comanda *
+              </label>
+              <input
+                type="number"
+                min={1}
+                required
+                value={numeroMesa}
+                onChange={(e) => setNumeroMesa(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold"
+              />
+            </div>
+
             {/* Itens do Carrinho */}
-            <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
               {carrinho.length === 0 ? (
                 <p className="text-xs text-slate-400 text-center py-6">
                   Toque nos produtos ao lado para montar o pedido.
@@ -578,34 +437,43 @@ export const PdvPage: React.FC = () => {
                 carrinho.map((item) => (
                   <div
                     key={item.localId}
-                    className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1.5"
+                    className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <span className="font-bold text-slate-900">
                           {item.quantidade}x {item.produto.nome}
                         </span>
-                        {item.modificadores.length > 0 && (
-                          <div className="text-[11px] text-slate-600 mt-0.5">
+                        {item.varianteSelecionada && (
+                          <span className="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-bold">
+                            {item.varianteSelecionada.tamanho}
+                          </span>
+                        )}
+                        {item.tipoGraoEscolhido && (
+                          <div className="text-[11px] text-amber-800">
+                            Grão: {item.tipoGraoEscolhido}
+                          </div>
+                        )}
+                        {item.adicionaisSelecionados.length > 0 && (
+                          <div className="text-[11px] text-emerald-800">
                             +{' '}
-                            {item.modificadores
-                              .map((m) => `${m.quantidade}x ${m.nome}`)
+                            {item.adicionaisSelecionados
+                              .map((a) => a.nome)
                               .join(', ')}
                           </div>
                         )}
-                        {item.selecoesCombo.length > 0 && (
-                          <div className="text-[11px] text-purple-800 mt-0.5">
-                            Combo:{' '}
-                            {item.selecoesCombo
-                              .map((s) => `${s.slotNome}: ${s.produtoNome}`)
-                              .join(' | ')}
+                        {item.pagadorItem && (
+                          <div className="text-[10px] text-slate-500">
+                            Pagador: {item.pagadorItem}
                           </div>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <strong className="text-slate-900">
-                          {formatCentavos(
-                            item.unitarioFinalCentavos * item.quantidade
+                        <strong className="text-slate-900 font-mono">
+                          {formatBigDecimalReais(
+                            roundBigDecimalHalfUp(
+                              item.precoUnitarioFinal * item.quantidade
+                            )
                           )}
                         </strong>
                         <button
@@ -615,7 +483,7 @@ export const PdvPage: React.FC = () => {
                               prev.filter((x) => x.localId !== item.localId)
                             )
                           }
-                          className="text-slate-400 hover:text-rose-600"
+                          className="text-slate-400 hover:text-rose-600 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -626,162 +494,11 @@ export const PdvPage: React.FC = () => {
               )}
             </div>
 
-            {/* Atendimento & Modalidade */}
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200">
-              {(['BALCAO', 'MESA', 'DELIVERY'] as TipoAtendimento[]).map(
-                (t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => {
-                      setTipoAtendimento(t);
-                      if (t === 'MESA') setModalidadePagamento('POS_PAGO');
-                      else setModalidadePagamento('PRE_PAGO');
-                    }}
-                    className={`py-2 rounded-xl text-xs font-bold border transition ${
-                      tipoAtendimento === t
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                )
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setModalidadePagamento('PRE_PAGO')}
-                className={`py-2 rounded-xl text-xs font-bold border ${
-                  modalidadePagamento === 'PRE_PAGO'
-                    ? 'bg-amber-600 text-white border-amber-600'
-                    : 'bg-white text-slate-700 border-slate-300'
-                }`}
-              >
-                PRÉ-PAGO (Quitar Agora)
-              </button>
-              <button
-                type="button"
-                onClick={() => setModalidadePagamento('POS_PAGO')}
-                className={`py-2 rounded-xl text-xs font-bold border ${
-                  modalidadePagamento === 'POS_PAGO'
-                    ? 'bg-amber-600 text-white border-amber-600'
-                    : 'bg-white text-slate-700 border-slate-300'
-                }`}
-              >
-                PÓS-PAGO (Comanda/Mesa)
-              </button>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2">
-                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
-                  Identificador Cliente
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={identificadorCliente}
-                  onChange={(e) => setIdentificadorCliente(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
-                  Mesa / Senha
-                </label>
-                <input
-                  type="text"
-                  value={mesa}
-                  onChange={(e) => setMesa(e.target.value)}
-                  placeholder="Ex.: 04"
-                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs"
-                />
-              </div>
-            </div>
-
-            {/* Pagamento quando PRÉ-PAGO */}
-            {modalidadePagamento === 'PRE_PAGO' && (
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-                <span className="text-[11px] font-bold uppercase text-slate-600 block">
-                  Forma de Recebimento
-                </span>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {[
-                    { m: 'DINHEIRO' as MetodoPagamento, l: 'Dinheiro', icon: Banknote },
-                    { m: 'PIX' as MetodoPagamento, l: 'PIX', icon: QrCode },
-                    {
-                      m: 'CARTAO_CREDITO' as MetodoPagamento,
-                      l: 'Crédito',
-                      icon: CreditCard,
-                    },
-                  ].map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.m}
-                        type="button"
-                        onClick={() => setMetodoPagamento(item.m)}
-                        className={`py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 border ${
-                          metodoPagamento === item.m
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'bg-white text-slate-700 border-slate-300'
-                        }`}
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                        <span>{item.l}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {metodoPagamento === 'DINHEIRO' && (
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
-                        Recebido em Espécie (R$)
-                      </label>
-                      <input
-                        type="text"
-                        value={valorRecebidoReais}
-                        onChange={(e) => setValorRecebidoReais(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-bold bg-white"
-                      />
-                    </div>
-                    <div>
-                      <span className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
-                        Troco Calculado
-                      </span>
-                      <div className="px-2.5 py-1.5 rounded-lg bg-emerald-100 text-emerald-900 font-extrabold text-xs">
-                        {formatCentavos(trocoEstimadoCentavos)}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Resumo Financeiro em Centavos */}
             <div className="pt-2 border-t border-slate-200 space-y-1.5 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>Subtotal dos Itens</span>
-                <span>{formatCentavos(subtotalCentavos)}</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-600">
-                <span>Desconto (R$)</span>
-                <input
-                  type="text"
-                  value={descontoReais}
-                  onChange={(e) => setDescontoReais(e.target.value)}
-                  className="w-20 text-right px-2 py-0.5 rounded border border-slate-300 text-xs"
-                />
-              </div>
               <div className="flex justify-between text-base font-extrabold text-slate-900 pt-1">
-                <span>Total a Pagar</span>
-                <span className="text-amber-700">
-                  {formatCentavos(totalPedidoCentavos)}
+                <span>Total do Pedido</span>
+                <span className="text-amber-700 font-mono">
+                  {formatBigDecimalReais(valorTotalPedido)}
                 </span>
               </div>
             </div>
@@ -789,189 +506,148 @@ export const PdvPage: React.FC = () => {
             <button
               type="submit"
               disabled={carrinho.length === 0}
-              className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-md transition"
+              className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
             >
               <Utensils className="w-4 h-4" />
               <span>
-                Emitir Pedido ({formatCentavos(totalPedidoCentavos)})
+                Enviar Pedido ({formatBigDecimalReais(valorTotalPedido)})
               </span>
             </button>
           </form>
         </div>
       </div>
 
-      {/* Modal de Personalização de Item (Modificadores e Slots de Combo) */}
+      {/* Modal de Personalização de Item */}
       {produtoCustomizando && (
         <div className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl border border-slate-200">
             <div className="flex items-start justify-between border-b border-slate-200 pb-3">
               <div>
                 <span className="text-xs font-mono font-bold text-amber-700">
-                  {produtoCustomizando.sku} · {produtoCustomizando.tipo}
+                  {produtoCustomizando.categoria}
+                  {produtoCustomizando.subcategoria
+                    ? ` · ${produtoCustomizando.subcategoria}`
+                    : ''}
                 </span>
                 <h3 className="text-lg font-extrabold text-slate-900">
                   {produtoCustomizando.nome}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Base: {formatCentavos(produtoCustomizando.precoBaseCentavos)}
+                  Preço Base:{' '}
+                  {formatBigDecimalReais(produtoCustomizando.precoBase)}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setProdutoCustomizando(null)}
-                className="px-3 py-1 rounded-lg bg-slate-100 text-xs font-bold text-slate-700"
+                className="px-3 py-1 rounded-lg bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer"
               >
                 Cancelar
               </button>
             </div>
 
-            {/* Grupos de Modificadores para produto SIMPLES */}
-            {produtoCustomizando.tipo === 'SIMPLES' &&
-              (produtoCustomizando.gruposModificadores || []).map((vinculo) => (
-                <div
-                  key={vinculo.grupo.id}
-                  className="space-y-2 bg-slate-50 p-3.5 rounded-2xl border border-slate-200"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900">
-                      {vinculo.grupo.nome}
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-900">
-                      mín {vinculo.minSelecaoEfetiva} / máx{' '}
-                      {vinculo.maxSelecaoEfetiva}
-                    </span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {vinculo.grupo.modificadores.map((mod) => {
-                      const qtdAtual = modsSelecionadosModal[mod.id] || 0;
-                      const adicLabel =
-                        mod.tipoPreco === 'FIXO'
-                          ? `+${formatCentavos(mod.valorPreco)}`
-                          : mod.tipoPreco === 'PERCENTUAL'
-                          ? `+${(mod.valorPreco / 100).toFixed(0)}% (${formatCentavos(
-                              calcPercentualHalfEven(
-                                produtoCustomizando.precoBaseCentavos,
-                                mod.valorPreco
-                              )
-                            )})`
-                          : 'Incluso';
-
-                      return (
-                        <div
-                          key={mod.id}
-                          className={`flex items-center justify-between p-2 rounded-xl border text-xs ${
-                            !mod.disponivel
-                              ? 'bg-rose-50 border-rose-200 opacity-60'
-                              : qtdAtual > 0
-                              ? 'bg-amber-50 border-amber-400'
-                              : 'bg-white border-slate-200'
-                          }`}
-                        >
-                          <div>
-                            <span className="font-semibold text-slate-800">
-                              {mod.nome}
-                            </span>
-                            <span className="ml-2 text-[11px] text-amber-700 font-bold">
-                              {adicLabel}
-                            </span>
-                          </div>
-                          {mod.disponivel ? (
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setModsSelecionadosModal((prev) => ({
-                                    ...prev,
-                                    [mod.id]: Math.max(
-                                      0,
-                                      (prev[mod.id] || 0) - 1
-                                    ),
-                                  }))
-                                }
-                                className="w-6 h-6 rounded-lg bg-slate-200 flex items-center justify-center"
-                              >
-                                <Minus className="w-3 h-3" />
-                              </button>
-                              <span className="font-bold w-4 text-center">
-                                {qtdAtual}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setModsSelecionadosModal((prev) => ({
-                                    ...prev,
-                                    [mod.id]: Math.min(
-                                      mod.maxQuantidade,
-                                      (prev[mod.id] || 0) + 1
-                                    ),
-                                  }))
-                                }
-                                className="w-6 h-6 rounded-lg bg-amber-600 text-white flex items-center justify-center"
-                              >
-                                <Plus className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-[10px] font-bold text-rose-700">
-                              ESGOTADO
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+            {/* Seleção de Variante / Tamanho */}
+            {produtoCustomizando.variantes &&
+              produtoCustomizando.variantes.length > 0 && (
+                <div className="space-y-2 bg-indigo-50/50 p-3.5 rounded-2xl border border-indigo-200">
+                  <span className="text-xs font-bold text-indigo-950 block">
+                    1. Escolha o Tamanho / Variante
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {produtoCustomizando.variantes.map((v, idx) => (
+                      <button
+                        key={v.id ?? idx}
+                        type="button"
+                        onClick={() => setVarianteIdxModal(idx)}
+                        className={`p-2.5 rounded-xl border text-xs flex items-center justify-between cursor-pointer ${
+                          varianteIdxModal === idx
+                            ? 'bg-indigo-600 text-white border-indigo-600 font-bold'
+                            : 'bg-white text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        <span>{v.tamanho}</span>
+                        <span className="font-mono">
+                          {formatBigDecimalReais(v.preco)}
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
 
-            {/* Slots para produto COMBO */}
-            {produtoCustomizando.tipo === 'COMBO' &&
-              (produtoCustomizando.comboSlots || []).map((slot) => (
-                <div
-                  key={slot.id}
-                  className="space-y-2 bg-purple-50/50 p-3.5 rounded-2xl border border-purple-200"
-                >
-                  <span className="text-xs font-bold text-purple-950 block">
-                    {slot.nome} (Obrigatório)
-                  </span>
-                  <div className="space-y-1.5">
-                    {slot.opcoes.map((op) => (
+            {/* Seleção de Grão (Condicional para BEBIDAS) */}
+            {produtoCustomizando.categoria === 'BEBIDAS' && (
+              <div className="space-y-2 bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200">
+                <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                  <Coffee className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Tipo de Grão / Extração</span>
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {OPCOES_GRAO.map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setGraoModal(g)}
+                      className={`p-2 rounded-xl border text-[11px] font-bold cursor-pointer ${
+                        graoModal === g
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Adicionais (Específicos + Globais da Categoria) */}
+            {adicionaisDisponiveisParaModal.length > 0 && (
+              <div className="space-y-2 bg-emerald-50/40 p-3.5 rounded-2xl border border-emerald-200">
+                <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Adicionais Opcionais</span>
+                </span>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                  {adicionaisDisponiveisParaModal.map((adic, idx) => {
+                    const key = `${adic.id ?? idx}-${adic.nome}`;
+                    const checked = Boolean(adicionaisModalIds[key]);
+                    return (
                       <label
-                        key={op.produtoId}
-                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer ${
-                          slotsSelecionadosModal[slot.id] === op.produtoId
-                            ? 'bg-white border-purple-600 font-bold'
-                            : 'bg-white/70 border-slate-200'
+                        key={key}
+                        className={`flex items-center justify-between p-2 rounded-xl border text-xs cursor-pointer ${
+                          checked
+                            ? 'bg-emerald-100/70 border-emerald-500 font-bold'
+                            : 'bg-white border-slate-200'
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           <input
-                            type="radio"
-                            name={slot.id}
-                            disabled={!op.disponivel}
-                            checked={
-                              slotsSelecionadosModal[slot.id] === op.produtoId
-                            }
-                            onChange={() =>
-                              setSlotsSelecionadosModal((prev) => ({
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) =>
+                              setAdicionaisModalIds((prev) => ({
                                 ...prev,
-                                [slot.id]: op.produtoId,
+                                [key]: e.target.checked,
                               }))
                             }
                           />
-                          <span>{op.produtoNome}</span>
+                          <span>{adic.nome}</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                            {adic.escopo || 'PRODUTO'}
+                          </span>
                         </div>
-                        <span className="text-purple-800 font-bold">
-                          {op.acrescimoCentavos > 0
-                            ? `+${formatCentavos(op.acrescimoCentavos)}`
-                            : 'Incluso'}
+                        <span className="text-emerald-800 font-mono font-bold">
+                          +{formatBigDecimalReais(adic.preco)}
                         </span>
                       </label>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
-              ))}
+              </div>
+            )}
 
-            <div className="grid grid-cols-3 gap-3 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
               <div>
                 <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
                   Quantidade
@@ -987,15 +663,30 @@ export const PdvPage: React.FC = () => {
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-bold"
                 />
               </div>
-              <div className="col-span-2">
+              <div>
                 <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-                  Observação do Item (Bar/Cozinha)
+                  Pagador na Mesa
+                </label>
+                <div className="relative">
+                  <User className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={pagadorModal}
+                    onChange={(e) => setPagadorModal(e.target.value)}
+                    placeholder="Ex: Cliente 1"
+                    className="w-full pl-8 pr-2.5 py-2 rounded-xl border border-slate-300 text-xs"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Observações
                 </label>
                 <input
                   type="text"
                   value={obsItemModal}
                   onChange={(e) => setObsItemModal(e.target.value)}
-                  placeholder="Ex.: Sem canela / Bem quente"
+                  placeholder="Ex: Sem açúcar"
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
                 />
               </div>
@@ -1004,10 +695,13 @@ export const PdvPage: React.FC = () => {
             <button
               type="button"
               onClick={confirmarItemNoCarrinho}
-              className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold shadow-md"
+              className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold shadow-md cursor-pointer"
             >
               Adicionar à Comanda (
-              {formatCentavos(precoUnitarioPreviewModal * qtdModal)})
+              {formatBigDecimalReais(
+                roundBigDecimalHalfUp(precoUnitarioPreviewModal * qtdModal)
+              )}
+              )
             </button>
           </div>
         </div>

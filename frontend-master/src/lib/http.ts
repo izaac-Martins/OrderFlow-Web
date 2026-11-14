@@ -27,7 +27,7 @@ export function getStoredLojaId(): string {
 
 export function isSimulationModeEnabled(): boolean {
   const val = localStorage.getItem(STORAGE_SIMULATION_MODE);
-  return val === null ? true : val === 'true';
+  return val === null ? false : val === 'true';
 }
 
 export function setSimulationModeEnabled(enabled: boolean): void {
@@ -50,7 +50,7 @@ export function clearAuthTokens(): void {
 }
 
 export const httpClient: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1',
   timeout: 12000,
   headers: {
     'Content-Type': 'application/json',
@@ -81,20 +81,26 @@ httpClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
-// Interceptor de Resposta: normaliza RFC 7807 ProblemDetail ou delega para simulação local caso o backend esteja offline
+// Interceptor de Resposta: normaliza erros do backend (ErroPadraoDTO / RFC 7807)
+// Para endpoints reais de catálogo e pedidos (/produtos e /pedidos), propaga o erro real do Spring Boot quando simulationMode === false
 httpClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error?.config as InternalAxiosRequestConfig | undefined;
+    const reqUrl = config?.url || '';
+    const isCoreCheiroCafeEndpoint =
+      reqUrl.startsWith('/produtos') || reqUrl.startsWith('/pedidos');
 
-    // Se o modo de simulação estiver ativo ou se o servidor local estiver inacessível (ECONNREFUSED / Network Error / 502 / 504)
-    const isNetworkOffline =
-      !error.response ||
-      error.code === 'ERR_NETWORK' ||
-      error.response?.status === 502 ||
-      error.response?.status === 504;
+    // Se o modo de simulação estiver explicitamente ativo, ou se for uma rota auxiliar (ex: /auth/login, /caixa) sem backend dedicado
+    const isNetworkOfflineOr404OnAux =
+      !isCoreCheiroCafeEndpoint &&
+      (!error.response ||
+        error.code === 'ERR_NETWORK' ||
+        error.response?.status === 404 ||
+        error.response?.status === 502 ||
+        error.response?.status === 504);
 
-    if (config && (isSimulationModeEnabled() || isNetworkOffline)) {
+    if (config && (isSimulationModeEnabled() || isNetworkOfflineOr404OnAux)) {
       try {
         const simulatedData = await handleLocalSimulationRequest(config);
         return {
@@ -123,7 +129,10 @@ export async function apiRequest<T>(config: {
   params?: Record<string, unknown>;
   headers?: Record<string, string>;
 }): Promise<T> {
-  if (isSimulationModeEnabled()) {
+  const isCoreCheiroCafeEndpoint =
+    config.url.startsWith('/produtos') || config.url.startsWith('/pedidos');
+
+  if (isSimulationModeEnabled() || !isCoreCheiroCafeEndpoint) {
     try {
       const fakeConfig = {
         method: config.method.toLowerCase(),

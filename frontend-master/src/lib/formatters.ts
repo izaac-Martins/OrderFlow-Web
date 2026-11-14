@@ -37,6 +37,50 @@ export function parseReaisToCentavos(raw: string): number {
 }
 
 /**
+ * Arredondamento HALF_UP rigoroso com 2 casas decimais (espelhando BigDecimal(scale=2, RoundingMode.HALF_UP) do Java).
+ */
+export function roundBigDecimalHalfUp(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const sign = value >= 0 ? 1 : -1;
+  const scaled = Math.floor(Math.abs(value) * 100 + 0.5 + 1e-9);
+  return (sign * scaled) / 100;
+}
+
+/**
+ * Converte input em texto ("12,50" ou "12.50") para número decimal com escala 2 e HALF_UP (ex.: 12.5).
+ */
+export function parseInputToBigDecimalNumber(raw: string): number {
+  const cleaned = raw.replace(/[^\d,.-]/g, '').replace(',', '.');
+  const parsed = Number.parseFloat(cleaned);
+  if (Number.isNaN(parsed)) {
+    return 0;
+  }
+  return roundBigDecimalHalfUp(parsed);
+}
+
+/**
+ * Formata um valor numérico BigDecimal (ex.: 14.5) para BRL ("R$ 14,50").
+ */
+export function formatBigDecimalReais(valor: number | string | null | undefined): string {
+  if (valor === null || valor === undefined) {
+    return 'R$ 0,00';
+  }
+  const num = typeof valor === 'string' ? Number.parseFloat(valor) : valor;
+  if (Number.isNaN(num)) {
+    return 'R$ 0,00';
+  }
+  return brlFormatter.format(roundBigDecimalHalfUp(num));
+}
+
+/**
+ * Converte número decimal (ex.: 14.5) para string editável com 2 casas ("14,50").
+ */
+export function bigDecimalToInputReais(valor: number | null | undefined): string {
+  const safe = valor ?? 0;
+  return roundBigDecimalHalfUp(safe).toFixed(2).replace('.', ',');
+}
+
+/**
  * Regra §2.1 do Planejamento Arquitetural:
  * Cálculo de modificador PERCENTUAL (em basis points, ex.: 1500 = 15%) sobre o preço base
  * aplicando arredondamento HALF_EVEN (arredondamento bancário) no centavo.

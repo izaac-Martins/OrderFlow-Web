@@ -23,9 +23,12 @@ const KDS_SIM_STORE_KEY = 'orderflow:kds_sim_store_v1';
 const KDS_SIM_MODE_KEY = 'orderflow:kds_simulation_mode';
 const KDS_SEQ_KEY = 'orderflow:kds_last_seq';
 
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+
 export function isKdsSimulationMode(): boolean {
   const val = localStorage.getItem(KDS_SIM_MODE_KEY);
-  return val === null ? true : val === 'true';
+  return val === null ? false : val === 'true';
 }
 
 export function setKdsSimulationMode(enabled: boolean): void {
@@ -313,8 +316,73 @@ function filtrarPedidoPorEstacao(
 
 // ─────────────────────────── HTTP Client & Handlers ───────────────────────────
 
+interface PedidoApiBackendDto {
+  id: number;
+  numeroMesa: number;
+  status: 'RECEBIDO' | 'EM_PREPARO' | 'PRONTO' | 'ENTREGUE' | 'CANCELADO';
+  versao?: number | null;
+  dataHora?: string | null;
+  itens?: Array<{
+    id?: number;
+    produtoId?: number;
+    nomeProduto: string;
+    quantidade: number;
+    tamanhoEscolhido?: string | null;
+    tipoGraoEscolhido?: string | null;
+    adicionaisEscolhidos?: string | null;
+    pagadorItem?: string | null;
+    observacoes?: string | null;
+  }>;
+}
+
+function mapPedidoBackendToKds(raw: PedidoApiBackendDto): PedidoCozinhaDto {
+  const itens = (raw.itens || []).map((item, idx) => {
+    const mods: string[] = [];
+    if (item.tamanhoEscolhido) mods.push(`Tam: ${item.tamanhoEscolhido}`);
+    if (item.tipoGraoEscolhido) mods.push(`Grão: ${item.tipoGraoEscolhido}`);
+    if (item.adicionaisEscolhidos) {
+      item.adicionaisEscolhidos
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((a) => mods.push(a));
+    }
+
+    const isBebida =
+      Boolean(item.tipoGraoEscolhido) ||
+      /caf[eé]|cappuccino|espresso|latte|mocha|suco|refri|ch[aá]|bebida|frapp/i.test(
+        item.nomeProduto
+      );
+
+    return {
+      itemId: String(item.id ?? `${raw.id}-${idx}`),
+      produtoNome: item.nomeProduto,
+      quantidade: item.quantidade,
+      estacao: (isBebida ? 'BAR' : 'COZINHA') as EstacaoPreparo,
+      modificadores: mods,
+      observacao: item.observacoes || null,
+      comboNome: item.pagadorItem ? `Pagador: ${item.pagadorItem}` : null,
+    };
+  });
+
+  return {
+    pedidoId: String(raw.id),
+    numeroDiario: raw.id,
+    identificadorCliente: `Mesa ${raw.numeroMesa}`,
+    mesa: String(raw.numeroMesa),
+    tipoAtendimento: 'MESA',
+    status: raw.status,
+    versao: raw.versao ?? 0,
+    observacao: null,
+    confirmadoEm: raw.dataHora || new Date().toISOString(),
+    preparoIniciadoEm: null,
+    prontoEm: null,
+    itens,
+  };
+}
+
 const httpClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
+  baseURL: API_BASE_URL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -327,50 +395,50 @@ httpClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token) {
     config.headers.set('Authorization', `Bearer ${token}`);
   }
-  config.headers.set('X-Loja-Id', LOJA_MATRIZ_ID);
-  if (config.method?.toUpperCase() !== 'GET') {
-    config.headers.set('Idempotency-Key', generateUuidV7());
-  }
   return config;
 });
 
 export async function fetchSnapshotCozinha(
   estacao: FiltroEstacaoKds
 ): Promise<CozinhaSnapshotResponse> {
-  const store = loadKdsStore();
+  if (!isKdsSimulationMode()) {
+    try {
+      const res = await httpClient.get<PedidoApiBackendDto[]>('/pedidos');
+      if (Array.isArray(res.data)) {
+        const mapeados = res.data
+          .map(mapPedidoBackendToKds)
+          .filter(
+            (p) =>
+              p.status === 'RECEBIDO' ||
+              p.status === 'CONFIRMADO' ||
+              p.status === 'EM_PREPARO' ||
+              p.status === 'PRONTO'
+          )
+          .map((p) => filtrarPedidoPorEstacao(p, estacao))
+          .filter((p) => p.itens.length > 0);
 
-  try {
-    const res = await httpClient.get<CozinhaSnapshotResponse>(
-      '/bridge/kds/snapshot',
-      { params: { estacao: 'TODAS' } }
-    );
-    if (res.data && Array.isArray(res.data.pedidos)) {
-      let changed = false;
-      for (const bp of res.data.pedidos) {
-        const idx = store.pedidos.findIndex((p) => p.pedidoId === bp.pedidoId);
-        if (idx === -1) {
-          store.pedidos.push(bp);
-          changed = true;
-        } else if (store.pedidos[idx].versao < bp.versao) {
-          store.pedidos[idx] = bp;
-          changed = true;
-        }
+        const seq = res.data.reduce(
+          (acc, p) => acc + p.id + (p.versao ?? 0),
+          0
+        );
+        saveLastSeq(seq);
+        return {
+          seqAtual: seq,
+          geradoEm: new Date().toISOString(),
+          pedidos: mapeados,
+        };
       }
-      if (res.data.seqAtual > store.seqAtual) {
-        store.seqAtual = res.data.seqAtual;
-        changed = true;
-      }
-      if (changed) {
-        saveKdsStore(store);
-      }
+    } catch {
+      // Fallback para store se backend estiver offline no momento
     }
-  } catch {
-    // fallback se bridge estiver indisponível no momento
   }
+
+  const store = loadKdsStore();
 
   const ativos = store.pedidos
     .filter(
       (p) =>
+        p.status === 'RECEBIDO' ||
         p.status === 'CONFIRMADO' ||
         p.status === 'EM_PREPARO' ||
         p.status === 'PRONTO'
@@ -437,18 +505,41 @@ export async function fetchReplayEventosCozinha(
 
 export async function transicionarPedidoKds(
   pedidoId: string,
-  acao: 'iniciar-preparo' | 'marcar-pronto' | 'refazer' | 'entregar',
+  acao: 'iniciar-preparo' | 'marcar-pronto' | 'refazer' | 'entregar' | 'cancelar',
   versao: number,
   motivo?: string
 ): Promise<PedidoCozinhaDto> {
   if (!isKdsSimulationMode()) {
-    const payload =
-      acao === 'refazer' ? { versao, motivo } : { versao };
-    const res = await httpClient.post<PedidoCozinhaDto>(
-      `/cozinha/pedidos/${pedidoId}/${acao}`,
-      payload
+    const statusAlvo =
+      acao === 'iniciar-preparo' || acao === 'refazer'
+        ? 'EM_PREPARO'
+        : acao === 'marcar-pronto'
+        ? 'PRONTO'
+        : acao === 'cancelar'
+        ? 'CANCELADO'
+        : 'ENTREGUE';
+
+    const res = await httpClient.patch<PedidoApiBackendDto>(
+      `/pedidos/${pedidoId}/status`,
+      { status: statusAlvo }
     );
-    return res.data;
+    const atualizado = mapPedidoBackendToKds(res.data);
+    const evento: PedidoCozinhaEventoDto = {
+      seq: Date.now(),
+      tipo:
+        statusAlvo === 'EM_PREPARO'
+          ? 'PREPARO_INICIADO'
+          : statusAlvo === 'PRONTO'
+          ? 'PEDIDO_PRONTO'
+          : 'PEDIDO_ENTREGUE',
+      pedidoId: atualizado.pedidoId,
+      versao: atualizado.versao,
+      status: atualizado.status,
+      ocorridoEm: new Date().toISOString(),
+      pedido: atualizado,
+    };
+    publishStompEvent(`/topic/lojas/${LOJA_MATRIZ_ID}/kds`, evento);
+    return atualizado;
   }
 
   const store = loadKdsStore();

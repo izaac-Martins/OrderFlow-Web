@@ -859,83 +859,95 @@ export class KdsStompConnection {
       localBus.removeEventListener(destKds, listener)
     );
 
-    // 2. Polling leve do Bridge (:8080) para garantir entrega mesmo se o handshake WS atrasar
+    // 2. Polling reativo em tempo real sobre GET /pedidos (:8080) alinhado ao Monitor do Sistema Master
     this.pollTimer = window.setInterval(async () => {
       try {
-        const res = await httpClient.get<PedidoCozinhaEventoDto[]>(
-          '/bridge/kds/events',
-          { params: { desdeSeq: 0, estacao } }
-        );
+        const res = await httpClient.get<PedidoApiBackendDto[]>('/pedidos');
         if (Array.isArray(res.data)) {
-          for (const ev of res.data) {
-            const key = `${ev.pedidoId}:${ev.versao}:${ev.status}`;
+          this.statusHandler?.(true);
+          for (const raw of res.data) {
+            const mapped = mapPedidoBackendToKds(raw);
+            const key = `${mapped.pedidoId}:${mapped.versao}:${mapped.status}`;
             if (!this.processedBridgeKeys.has(key)) {
+              const isFirstTimeForOrder = !Array.from(this.processedBridgeKeys).some(
+                (k) => k.startsWith(`${mapped.pedidoId}:`)
+              );
               this.processedBridgeKeys.add(key);
-              const store = loadKdsStore();
-              if (ev.pedido) {
-                const idx = store.pedidos.findIndex(
-                  (p) => p.pedidoId === ev.pedidoId
-                );
-                if (idx === -1) {
-                  store.pedidos.push(ev.pedido);
-                } else if (store.pedidos[idx].versao <= ev.pedido.versao) {
-                  store.pedidos[idx] = ev.pedido;
-                }
-                if (ev.seq > store.seqAtual) {
-                  store.seqAtual = ev.seq;
-                }
-                saveKdsStore(store);
-              }
+
+              const tipoEv =
+                mapped.status === 'RECEBIDO' || mapped.status === 'CONFIRMADO'
+                  ? isFirstTimeForOrder
+                    ? 'PEDIDO_CONFIRMADO'
+                    : 'PREPARO_INICIADO'
+                  : mapped.status === 'EM_PREPARO'
+                  ? 'PREPARO_INICIADO'
+                  : mapped.status === 'PRONTO'
+                  ? 'PEDIDO_PRONTO'
+                  : mapped.status === 'ENTREGUE'
+                  ? 'PEDIDO_ENTREGUE'
+                  : 'PEDIDO_CANCELADO';
+
+              const ev: PedidoCozinhaEventoDto = {
+                seq: raw.id + (raw.versao ?? 0),
+                tipo: tipoEv,
+                pedidoId: mapped.pedidoId,
+                versao: mapped.versao,
+                status: mapped.status,
+                ocorridoEm: mapped.confirmadoEm,
+                pedido: mapped,
+              };
               this.eventHandler?.(ev);
             }
           }
         }
       } catch {
-        // ignora erros de rede transitórios
+        // ignora oscilações transitórias de rede sem piscar a tela
       }
-    }, 1200);
+    }, 3000);
 
-    // 3. Conexão STOMP real (ws://localhost:8080/ws via proxy /ws) com heartbeat 10000,10000
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const brokerURL =
-      import.meta.env.VITE_WS_URL ||
-      `${wsProtocol}//${window.location.host}/ws`;
-    const token = localStorage.getItem('orderflow:access_token') || '';
+    // 3. Conexão STOMP opcional (ativada apenas quando VITE_ENABLE_WS === 'true' para evitar ECONNRESET no proxy Vite)
+    if (import.meta.env.VITE_ENABLE_WS === 'true') {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const brokerURL =
+        import.meta.env.VITE_WS_URL ||
+        `${wsProtocol}//${window.location.host}/ws`;
+      const token = localStorage.getItem('orderflow:access_token') || '';
 
-    this.client = new Client({
-      brokerURL,
-      connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
-      heartbeatIncoming: 10000,
-      heartbeatOutgoing: 10000,
-      reconnectDelay: 3000,
-      onConnect: () => {
-        this.statusHandler?.(true);
-        const topico =
-          estacao === 'TODAS'
-            ? `/topic/lojas/${LOJA_MATRIZ_ID}/cozinha/pedidos`
-            : `/topic/lojas/${LOJA_MATRIZ_ID}/cozinha/estacoes/${
-                estacao as EstacaoPreparo
-              }`;
+      this.client = new Client({
+        brokerURL,
+        connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+        heartbeatIncoming: 10000,
+        heartbeatOutgoing: 10000,
+        reconnectDelay: 5000,
+        onConnect: () => {
+          this.statusHandler?.(true);
+          const topico =
+            estacao === 'TODAS'
+              ? `/topic/lojas/${LOJA_MATRIZ_ID}/cozinha/pedidos`
+              : `/topic/lojas/${LOJA_MATRIZ_ID}/cozinha/estacoes/${
+                  estacao as EstacaoPreparo
+                }`;
 
-        this.client?.subscribe(topico, (msg: IMessage) => {
-          try {
-            const parsed = JSON.parse(msg.body) as PedidoCozinhaEventoDto;
-            const key = `${parsed.pedidoId}:${parsed.versao}:${parsed.status}`;
-            if (!this.processedBridgeKeys.has(key)) {
-              this.processedBridgeKeys.add(key);
-              this.eventHandler?.(parsed);
+          this.client?.subscribe(topico, (msg: IMessage) => {
+            try {
+              const parsed = JSON.parse(msg.body) as PedidoCozinhaEventoDto;
+              const key = `${parsed.pedidoId}:${parsed.versao}:${parsed.status}`;
+              if (!this.processedBridgeKeys.has(key)) {
+                this.processedBridgeKeys.add(key);
+                this.eventHandler?.(parsed);
+              }
+            } catch {
+              // ignora payload inválido
             }
-          } catch {
-            // ignora payload inválido
-          }
-        });
-      },
-      onDisconnect: () => this.statusHandler?.(true),
-      onWebSocketClose: () => this.statusHandler?.(true),
-      onStompError: () => this.statusHandler?.(true),
-    });
+          });
+        },
+        onDisconnect: () => this.statusHandler?.(true),
+        onWebSocketClose: () => this.statusHandler?.(true),
+        onStompError: () => this.statusHandler?.(true),
+      });
 
-    this.client.activate();
+      this.client.activate();
+    }
     this.statusHandler?.(true);
   }
 

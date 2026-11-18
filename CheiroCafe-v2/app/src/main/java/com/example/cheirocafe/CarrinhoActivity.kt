@@ -49,6 +49,9 @@ class CarrinhoActivity : AppCompatActivity() {
         )
         viewModel = ViewModelProvider(this, factory)[CarrinhoViewModel::class.java]
 
+        binding.ibVoltarCarrinho.setOnClickListener { finish() }
+        binding.btnAdicionarMaisItens.setOnClickListener { finish() }
+
         binding.btnEnviarPedidoCozinha.setOnClickListener {
             viewModel.enviarPedidoParaCozinha()
         }
@@ -62,7 +65,11 @@ class CarrinhoActivity : AppCompatActivity() {
                 launch {
                     viewModel.uiState.collect { estado ->
                         binding.txtNumeroMesaCarrinho.text =
-                            String.format(Locale("pt", "BR"), "Mesa %02d", estado.numeroMesa)
+                            String.format(Locale("pt", "BR"), "Comanda • Mesa %02d", estado.numeroMesa)
+                        binding.txtResumoItensCarrinho.text =
+                            if (estado.itens.size == 1) "Subtotal (1 item)" else "Subtotal (${estado.itens.size} itens)"
+                        binding.txtSubtotalCarrinho.text =
+                            String.format(Locale("pt", "BR"), "R$ %.2f", estado.valorTotalGeral)
                         binding.txtTotalCarrinho.text =
                             String.format(Locale("pt", "BR"), "R$ %.2f", estado.valorTotalGeral)
                         binding.btnEnviarPedidoCozinha.isEnabled =

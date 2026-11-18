@@ -33,7 +33,8 @@ class CarrinhoAdapter(
             ""
         }
         holder.binding.txtNomeProduto.text = "${item.nomeProduto}$sufixoTamanho"
-        holder.binding.txtQuantidade.text = "Qtd: ${item.quantidade}x • ${item.pagadorItem}"
+        holder.binding.txtQuantidade.text = "${item.quantidade}x"
+        holder.binding.txtPagador.text = "Pagador: ${item.pagadorItem}"
         holder.binding.txtPrecoTotal.text = String.format(Locale("pt", "BR"), "R$ %.2f", item.precoTotalItem)
 
         if (item.adicionaisEscolhidos.isNotBlank() && item.adicionaisEscolhidos != "Nenhum") {
@@ -41,6 +42,10 @@ class CarrinhoAdapter(
             holder.binding.txtAdicionais.text = "Adicionais: ${item.adicionaisEscolhidos}"
         } else {
             holder.binding.txtAdicionais.visibility = View.GONE
+        }
+
+        holder.binding.btnRemoverItem.setOnClickListener {
+            cliqueRemover(item)
         }
 
         holder.binding.root.setOnLongClickListener {

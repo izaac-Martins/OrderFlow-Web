@@ -37,6 +37,8 @@ class MonitorPedidosActivity : AppCompatActivity() {
 
         binding.rvPedidosMonitor.layoutManager = LinearLayoutManager(this)
         binding.rvPedidosMonitor.adapter = adapter
+        // Evita flickering durante o polling de atualização
+        binding.rvPedidosMonitor.itemAnimator = null
 
         val database = AppDatabase.getDatabase(this)
         val factory = MonitorPedidosViewModel.Factory(

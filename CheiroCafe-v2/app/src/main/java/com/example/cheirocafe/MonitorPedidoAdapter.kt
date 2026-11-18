@@ -3,6 +3,7 @@ package com.example.cheirocafe
 import android.content.res.ColorStateList
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -30,7 +31,19 @@ class MonitorPedidoAdapter :
 
         val idTexto = pedido.id?.let { "#$it" } ?: "#--"
         val mesaTexto = String.format(Locale("pt", "BR"), "Mesa %02d", pedido.numeroMesa)
-        holder.binding.txtIdentificacaoPedido.text = "Pedido $idTexto • $mesaTexto"
+        holder.binding.txtMesaPill.text = mesaTexto
+        holder.binding.txtIdentificacaoPedido.text = "Pedido $idTexto"
+
+        // Destaque operacional: borda verde esmeralda de 2dp quando PRONTO
+        val ctx = holder.binding.root.context
+        val densidade = ctx.resources.displayMetrics.density
+        if (statusCanonico == StatusPedidoCanonico.PRONTO) {
+            holder.binding.root.strokeColor = ContextCompat.getColor(ctx, R.color.status_pronto)
+            holder.binding.root.strokeWidth = (2 * densidade).toInt()
+        } else {
+            holder.binding.root.strokeColor = ContextCompat.getColor(ctx, R.color.stroke_subtle)
+            holder.binding.root.strokeWidth = (1 * densidade).toInt()
+        }
 
         holder.binding.txtHorarioPedido.text = formatarDataHora(pedido.criadoEm)
 

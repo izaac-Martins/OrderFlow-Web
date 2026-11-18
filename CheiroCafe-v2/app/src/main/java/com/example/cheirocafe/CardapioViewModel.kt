@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.text.Normalizer
 
 sealed interface ModoExibicaoCardapio {
     data class Subcategorias(
@@ -25,24 +26,17 @@ data class CardapioUiState(
     val isLoading: Boolean = false,
     val todosProdutos: List<Produto> = emptyList(),
     val categoriaSelecionada: CategoriaProduto = CategoriaProduto.BEBIDAS,
+    val subcategoriasDisponiveis: List<String> = emptyList(),
+    val subcategoriaSelecionada: String? = null,
     val termoBusca: String = "",
-    val modoExibicao: ModoExibicaoCardapio = ModoExibicaoCardapio.Subcategorias(
+    val modoExibicao: ModoExibicaoCardapio = ModoExibicaoCardapio.GradeProdutos(
         titulo = "Bebidas & Cafés",
-        itens = subcategoriasPadrao()
+        produtos = emptyList()
     ),
     val resumoPainel: ResumoPainel? = null,
     val modoOfflineAtivo: Boolean = false,
     val erroMensagem: String? = null
-) {
-    companion object {
-        fun subcategoriasPadrao(): List<SubcategoriaItem> = listOf(
-            SubcategoriaItem("Cafés Tradicionais", R.drawable.cafeprensa),
-            SubcategoriaItem("Cafés Especiais", R.drawable.cafecremoso),
-            SubcategoriaItem("Sucos Naturais", R.drawable.sucomanga),
-            SubcategoriaItem("Refrescos", R.drawable.refrilata)
-        )
-    }
-}
+)
 
 class CardapioViewModel(
     private val produtoRepository: ProdutoRepository,
@@ -58,15 +52,22 @@ class CardapioViewModel(
         carregarProdutos()
     }
 
-    /**
-     * Observa continuamente a tabela local do Room (Single Source of Truth).
-     * Qualquer atualização vinda da API reflete reativamente na UI.
-     */
     private fun observarCatalogoLocalSingleSourceOfTruth() {
         viewModelScope.launch {
             produtoRepository.observarCatalogoLocal().collect { produtosLocais ->
                 _uiState.update { estadoAtual ->
-                    val novoEstado = estadoAtual.copy(todosProdutos = produtosLocais)
+                    val subcats = extrairSubcategoriasUnicas(
+                        produtos = produtosLocais,
+                        categoria = estadoAtual.categoriaSelecionada
+                    )
+                    val subcatValida = estadoAtual.subcategoriaSelecionada?.takeIf { sel ->
+                        subcats.any { it.equals(sel, ignoreCase = true) }
+                    }
+                    val novoEstado = estadoAtual.copy(
+                        todosProdutos = produtosLocais,
+                        subcategoriasDisponiveis = subcats,
+                        subcategoriaSelecionada = subcatValida
+                    )
                     novoEstado.copy(modoExibicao = calcularModoExibicao(novoEstado))
                 }
             }
@@ -81,15 +82,10 @@ class CardapioViewModel(
         }
     }
 
-    /**
-     * Dispara a sincronização em background com o servidor Spring Boot (produtos + fila de pedidos offline),
-     * mantendo fallback transparente para o Room caso o Wi-Fi esteja indisponível.
-     */
     fun carregarProdutos() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, erroMensagem = null) }
 
-            // Aproveita a janela de rede para enviar comandas retidas offline (se houver)
             pedidoRepository.sincronizarPedidosPendentesOffline()
 
             when (val resultado = produtoRepository.sincronizarCatalogo()) {
@@ -126,7 +122,27 @@ class CardapioViewModel(
 
     fun selecionarCategoria(categoria: CategoriaProduto) {
         _uiState.update { estadoAtual ->
-            val novoEstado = estadoAtual.copy(categoriaSelecionada = categoria)
+            val subcats = extrairSubcategoriasUnicas(
+                produtos = estadoAtual.todosProdutos,
+                categoria = categoria
+            )
+            val novoEstado = estadoAtual.copy(
+                categoriaSelecionada = categoria,
+                subcategoriasDisponiveis = subcats,
+                subcategoriaSelecionada = null
+            )
+            novoEstado.copy(modoExibicao = calcularModoExibicao(novoEstado))
+        }
+    }
+
+    fun selecionarSubcategoria(subcategoria: String?) {
+        _uiState.update { estadoAtual ->
+            val novaSubcat = if (estadoAtual.subcategoriaSelecionada.equals(subcategoria, ignoreCase = true)) {
+                null
+            } else {
+                subcategoria
+            }
+            val novoEstado = estadoAtual.copy(subcategoriaSelecionada = novaSubcat)
             novoEstado.copy(modoExibicao = calcularModoExibicao(novoEstado))
         }
     }
@@ -140,55 +156,85 @@ class CardapioViewModel(
         }
     }
 
-    fun filtrarProdutosPorSubcategoria(nomeExibicao: String): List<Produto> {
-        val tagSubcategoria = mapearSubcategoriaParaTag(nomeExibicao)
-        return _uiState.value.todosProdutos.filter { produto ->
-            produto.categoria == CategoriaProduto.BEBIDAS &&
-                (produto.subcategoria.equals(tagSubcategoria, ignoreCase = true) ||
-                    produto.descricao.equals(tagSubcategoria, ignoreCase = true))
-        }
-    }
-
     suspend fun obterNumeroMesaAtiva(): Int {
         return pedidoRepository.obterUltimoItemRascunho()?.numeroMesa ?: 1
     }
 
     private fun calcularModoExibicao(estado: CardapioUiState): ModoExibicaoCardapio {
-        if (estado.termoBusca.isNotEmpty()) {
-            val filtrados = estado.todosProdutos.filter {
-                it.nome.contains(estado.termoBusca, ignoreCase = true) ||
-                    (it.descricao?.contains(estado.termoBusca, ignoreCase = true) == true)
+        if (estado.termoBusca.isNotBlank()) {
+            val queryNormalizada = normalizarTextoBusca(estado.termoBusca)
+            val filtradosGlobais = estado.todosProdutos.filter { prod ->
+                normalizarTextoBusca(prod.nome).contains(queryNormalizada) ||
+                    normalizarTextoBusca(prod.descricao).contains(queryNormalizada) ||
+                    normalizarTextoBusca(prod.subcategoria).contains(queryNormalizada) ||
+                    normalizarTextoBusca(prod.categoria.name).contains(queryNormalizada)
             }
             return ModoExibicaoCardapio.GradeProdutos(
-                titulo = "Resultados da pesquisa (${filtrados.size})",
-                produtos = filtrados
+                titulo = "Resultados da pesquisa (${filtradosGlobais.size})",
+                produtos = filtradosGlobais
             )
         }
 
-        return when (estado.categoriaSelecionada) {
-            CategoriaProduto.BEBIDAS -> ModoExibicaoCardapio.Subcategorias(
-                titulo = "Bebidas & Cafés",
-                itens = CardapioUiState.subcategoriasPadrao()
-            )
-            CategoriaProduto.DOCES -> ModoExibicaoCardapio.GradeProdutos(
-                titulo = "Doces",
-                produtos = estado.todosProdutos.filter { it.categoria == CategoriaProduto.DOCES }
-            )
-            CategoriaProduto.SALGADOS -> ModoExibicaoCardapio.GradeProdutos(
-                titulo = "Salgados",
-                produtos = estado.todosProdutos.filter { it.categoria == CategoriaProduto.SALGADOS }
-            )
+        val daCategoria = estado.todosProdutos.filter {
+            it.categoria == estado.categoriaSelecionada
         }
+
+        val filtradosSubcat = if (estado.subcategoriaSelecionada.isNullOrBlank()) {
+            daCategoria
+        } else {
+            daCategoria.filter { prod ->
+                obterSubcategoriaEfetiva(prod).equals(estado.subcategoriaSelecionada, ignoreCase = true)
+            }
+        }
+
+        val tituloBase = when (estado.categoriaSelecionada) {
+            CategoriaProduto.BEBIDAS -> "Bebidas & Cafés"
+            CategoriaProduto.DOCES -> "Doces"
+            CategoriaProduto.SALGADOS -> "Salgados"
+        }
+
+        return ModoExibicaoCardapio.GradeProdutos(
+            titulo = tituloBase,
+            produtos = filtradosSubcat
+        )
     }
 
-    private fun mapearSubcategoriaParaTag(nomeExibicao: String): String {
-        return when {
-            nomeExibicao.contains("Tradicionais", ignoreCase = true) -> "TRADICIONAL"
-            nomeExibicao.contains("Especiais", ignoreCase = true) -> "ESPECIAL"
-            nomeExibicao.contains("Sucos", ignoreCase = true) -> "SUCOS_IOGURTES"
-            nomeExibicao.contains("Refrescos", ignoreCase = true) -> "REFRIGERANTES"
-            else -> nomeExibicao.uppercase()
-        }
+    private fun normalizarTextoBusca(texto: String?): String {
+        if (texto.isNullOrBlank()) return ""
+        val decomposto = Normalizer.normalize(texto.trim().lowercase(), Normalizer.Form.NFD)
+        return REGEX_ACENTOS.replace(decomposto, "")
+    }
+
+    private fun extrairSubcategoriasUnicas(
+        produtos: List<Produto>,
+        categoria: CategoriaProduto
+    ): List<String> {
+        return produtos
+            .asSequence()
+            .filter { it.categoria == categoria }
+            .mapNotNull { obterSubcategoriaEfetiva(it) }
+            .filter { it.isNotEmpty() }
+            .distinctBy { it.uppercase() }
+            .toList()
+    }
+
+    private fun obterSubcategoriaEfetiva(produto: Produto): String? {
+        val subDireta = produto.subcategoria?.trim()?.takeIf { it.isNotEmpty() }
+        if (subDireta != null) return subDireta
+
+        // Compatibilidade com produtos antigos em que a tag de subcategoria foi gravada na descrição
+        val desc = produto.descricao?.trim()?.uppercase()
+        return if (desc in TAGS_SUBCATEGORIA_LEGADO) desc else null
+    }
+
+    companion object {
+        private val REGEX_ACENTOS = "\\p{InCombiningDiacriticalMarks}+".toRegex()
+        private val TAGS_SUBCATEGORIA_LEGADO = setOf(
+            "TRADICIONAL",
+            "ESPECIAL",
+            "SUCOS_IOGURTES",
+            "REFRIGERANTES"
+        )
     }
 
     class Factory(

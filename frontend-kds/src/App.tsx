@@ -169,12 +169,30 @@ export const App: React.FC = () => {
     [estacao, mostrarNotificacao]
   );
 
-  // Carrega snapshot inicial da cozinha + conecta STOMP
+  // Carrega snapshot da cozinha de forma silenciosa (sem piscar a tela se não houve mudança)
   const sincronizarSnapshotInicial = useCallback(async () => {
-    const snap = await fetchSnapshotCozinha(estacao);
-    setPedidos(snap.pedidos);
-    setSeqAtual(snap.seqAtual);
-    saveLastSeq(snap.seqAtual);
+    try {
+      const snap = await fetchSnapshotCozinha(estacao);
+      setPedidos((prev) => {
+        const prevAssinatura = prev
+          .map((p) => `${p.pedidoId}:${p.versao}:${p.status}`)
+          .join('|');
+        const novaAssinatura = snap.pedidos
+          .map((p) => `${p.pedidoId}:${p.versao}:${p.status}`)
+          .join('|');
+        if (prevAssinatura === novaAssinatura) {
+          return prev;
+        }
+        return snap.pedidos;
+      });
+      setSeqAtual((prevSeq) => {
+        const next = Math.max(prevSeq, snap.seqAtual);
+        saveLastSeq(next);
+        return next;
+      });
+    } catch {
+      // Mantém os cards atuais na tela em caso de oscilação de rede
+    }
   }, [estacao]);
 
   // Executa Replay Monotônico (`GET /api/v1/cozinha/eventos?desdeSeq=...`)
@@ -216,7 +234,13 @@ export const App: React.FC = () => {
       }
     );
 
+    // Fallback de polling silencioso (a cada 3,5s via GET /pedidos), idêntico ao Monitor do Sistema Master
+    const fallbackPollId = window.setInterval(() => {
+      sincronizarSnapshotInicial();
+    }, 3500);
+
     return () => {
+      window.clearInterval(fallbackPollId);
       conn.stop();
     };
   }, [

@@ -44,7 +44,7 @@ export class OrderFlowStompManager {
     const token = getStoredAccessToken();
     if (!token) return;
 
-    if (isSimulationModeEnabled()) {
+    if (isSimulationModeEnabled() || import.meta.env.VITE_ENABLE_WS !== 'true') {
       this.setConnected(true);
       return;
     }

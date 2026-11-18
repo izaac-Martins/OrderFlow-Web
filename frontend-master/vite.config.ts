@@ -19,8 +19,14 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8080',
+        target: 'http://localhost:8080',
         ws: true,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {
+            // Silencia ECONNRESET quando o backend REST (:8080) opera via HTTP polling sem endpoint /ws
+          });
+        },
       },
     },
   },

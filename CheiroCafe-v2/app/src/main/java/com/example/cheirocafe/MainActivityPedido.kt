@@ -2,14 +2,20 @@ package com.example.cheirocafe
 
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.AppCompatButton
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -26,23 +32,6 @@ class MainActivityPedido : AppCompatActivity() {
     private lateinit var binding: ActivityMainPedidoBinding
     private lateinit var viewModel: CardapioViewModel
 
-    private val subcategoriaAdapter = SubcategoriaAdapter { subcategoriaClicada ->
-        val produtosFiltrados = viewModel.filtrarProdutosPorSubcategoria(subcategoriaClicada.nome)
-        if (produtosFiltrados.isEmpty()) {
-            Toast.makeText(
-                this,
-                "Nenhum produto cadastrado em ${subcategoriaClicada.nome}",
-                Toast.LENGTH_SHORT
-            ).show()
-        } else {
-            val intent = Intent(this, ListaProdutosFiltradosActivity::class.java).apply {
-                putExtra("TITULO_TELA", subcategoriaClicada.nome)
-                putParcelableArrayListExtra("PRODUTOS_LISTA", ArrayList(produtosFiltrados))
-            }
-            startActivity(intent)
-        }
-    }
-
     private val produtoAdapter = ProdutoAdapter { produtoSelecionado ->
         val intent = Intent(this, DetalheActivity::class.java).apply {
             putExtra("TITULO_TELA", produtoSelecionado.nome)
@@ -51,14 +40,17 @@ class MainActivityPedido : AppCompatActivity() {
         startActivity(intent)
     }
 
+    private var assinaturaChipsRenderizados: String = ""
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         binding = ActivityMainPedidoBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Grade simétrica permanente de 2 colunas
+        // Grade simétrica permanente de 2 colunas exibindo sempre ProdutoAdapter
         binding.rvProdutos.layoutManager = GridLayoutManager(this, 2)
+        binding.rvProdutos.adapter = produtoAdapter
 
         val database = AppDatabase.getDatabase(this)
         val factory = CardapioViewModel.Factory(
@@ -139,6 +131,11 @@ class MainActivityPedido : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.uiState.collect { estado ->
                     renderizarBotoesCategoria(estado.categoriaSelecionada)
+                    renderizarChipsSubcategoria(
+                        subcategorias = estado.subcategoriasDisponiveis,
+                        selecionada = estado.subcategoriaSelecionada,
+                        ocultarPorBusca = estado.termoBusca.isNotBlank()
+                    )
                     renderizarCardapio(estado.modoExibicao)
                     renderizarPainelCarrinho(estado.resumoPainel)
                 }
@@ -154,31 +151,111 @@ class MainActivityPedido : AppCompatActivity() {
         )
         botoes.forEach { (cat, botao) ->
             if (cat == selecionada) {
-                botao.setBackgroundResource(R.drawable.btn_fundo_selecionado)
+                botao.setBackgroundResource(R.drawable.bg_pill_selected)
                 botao.setTextColor(Color.WHITE)
             } else {
-                botao.setBackgroundResource(R.drawable.btn_fundo_cinza)
-                botao.setTextColor(Color.parseColor("#571D22"))
+                botao.setBackgroundResource(R.drawable.bg_pill_unselected)
+                botao.setTextColor(ContextCompat.getColor(this, R.color.coffee_primary))
+            }
+        }
+    }
+
+    private fun renderizarChipsSubcategoria(
+        subcategorias: List<String>,
+        selecionada: String?,
+        ocultarPorBusca: Boolean
+    ) {
+        if (ocultarPorBusca || subcategorias.isEmpty()) {
+            binding.scrollSubcategorias.visibility = View.GONE
+            assinaturaChipsRenderizados = ""
+            return
+        }
+
+        binding.scrollSubcategorias.visibility = View.VISIBLE
+
+        val novaAssinatura = "${subcategorias.joinToString("|")}::${selecionada.orEmpty()}"
+        if (novaAssinatura == assinaturaChipsRenderizados) return
+        assinaturaChipsRenderizados = novaAssinatura
+
+        binding.containerChipsSubcategoria.removeAllViews()
+
+        val opcoes = listOf<String?>(null) + subcategorias
+        opcoes.forEachIndexed { index, subcat ->
+            val ativo = (subcat == null && selecionada == null) ||
+                (subcat != null && subcat.equals(selecionada, ignoreCase = true))
+
+            val chip = criarChipSubcategoria(
+                rotulo = formatarNomeSubcategoria(subcat),
+                ativo = ativo,
+                temMargemDireita = index < opcoes.lastIndex
+            ) {
+                viewModel.selecionarSubcategoria(subcat)
+            }
+            binding.containerChipsSubcategoria.addView(chip)
+        }
+    }
+
+    private fun criarChipSubcategoria(
+        rotulo: String,
+        ativo: Boolean,
+        temMargemDireita: Boolean,
+        aoClicar: () -> Unit
+    ): AppCompatButton {
+        val densidade = resources.displayMetrics.density
+        val alturaPx = (34 * densidade).toInt()
+        val padHorizontalPx = (14 * densidade).toInt()
+        val margemDireitaPx = if (temMargemDireita) (8 * densidade).toInt() else 0
+
+        return AppCompatButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                alturaPx
+            ).apply {
+                marginEnd = margemDireitaPx
+            }
+            minHeight = 0
+            minimumHeight = 0
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(padHorizontalPx, 0, padHorizontalPx, 0)
+            gravity = Gravity.CENTER
+            isAllCaps = false
+            stateListAnimator = null
+            text = rotulo
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.DEFAULT_BOLD
+            if (ativo) {
+                setBackgroundResource(R.drawable.bg_pill_selected)
+                setTextColor(Color.WHITE)
+            } else {
+                setBackgroundResource(R.drawable.bg_pill_unselected)
+                setTextColor(ContextCompat.getColor(context, R.color.coffee_primary))
+            }
+            setOnClickListener { aoClicar() }
+        }
+    }
+
+    private fun formatarNomeSubcategoria(tag: String?): String {
+        if (tag.isNullOrBlank()) return "Todas"
+        return when (tag.trim().uppercase()) {
+            "TRADICIONAL" -> "Tradicionais"
+            "ESPECIAL" -> "Especiais"
+            "SUCOS_IOGURTES" -> "Sucos & Iogurtes"
+            "REFRIGERANTES" -> "Refrigerantes"
+            else -> tag.trim().replaceFirstChar {
+                if (it.isLowerCase()) it.titlecase(Locale("pt", "BR")) else it.toString()
             }
         }
     }
 
     private fun renderizarCardapio(modo: ModoExibicaoCardapio) {
         when (modo) {
-            is ModoExibicaoCardapio.Subcategorias -> {
-                binding.textViewLabel.text = modo.titulo
-                if (binding.rvProdutos.adapter !== subcategoriaAdapter) {
-                    binding.rvProdutos.adapter = subcategoriaAdapter
-                }
-                subcategoriaAdapter.submitList(modo.itens)
-            }
-
             is ModoExibicaoCardapio.GradeProdutos -> {
                 binding.textViewLabel.text = modo.titulo
-                if (binding.rvProdutos.adapter !== produtoAdapter) {
-                    binding.rvProdutos.adapter = produtoAdapter
-                }
                 produtoAdapter.submitList(modo.produtos)
+            }
+            is ModoExibicaoCardapio.Subcategorias -> {
+                binding.textViewLabel.text = modo.titulo
             }
         }
     }

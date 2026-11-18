@@ -1,57 +1,97 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="12dp">
+    android:layout_marginStart="16dp"
+    android:layout_marginTop="6dp"
+    android:layout_marginEnd="16dp"
+    android:layout_marginBottom="6dp"
+    app:cardBackgroundColor="@color/surface_card"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/stroke_subtle"
+    app:strokeWidth="1dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp">
 
+        <!-- Badge de quantidade -->
         <TextView
-            android:id="@+id/txtNomeProduto"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Nome do Produto"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:textColor="#3E2723" />
-
-        <TextView
-            android:id="@+id/txtPrecoTotal"
+            android:id="@+id/txtQuantidade"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="R$ 0,00"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:textColor="#3E2723" />
+            android:layout_gravity="top"
+            android:background="@color/surface_badge_warm"
+            android:minWidth="36dp"
+            android:paddingStart="10dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="4dp"
+            android:gravity="center"
+            android:text="1x"
+            android:textColor="@color/coffee_primary"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/txtNomeProduto"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Nome do Produto (300ml)"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/txtAdicionais"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Adicionais: Nenhum"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/txtPagador"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Mesa Total"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/txtPrecoTotal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="R$ 0,00"
+                android:textColor="@color/coffee_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnRemoverItem"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center_vertical"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Remover item"
+            android:src="@android:drawable/ic_menu_delete"
+            app:tint="@color/action_danger" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/txtQuantidade"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Qtd: 1"
-        android:textSize="14sp"
-        android:textColor="#757575"
-        android:layout_marginTop="2dp" />
-
-    <TextView
-        android:id="@+id/txtAdicionais"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Adicionais: Nenhum"
-        android:textSize="14sp"
-        android:textColor="#795548"
-        android:layout_marginTop="2dp"
-        android:visibility="gone" />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#E0E0E0"
-        android:layout_marginTop="8dp" />
-</LinearLayout>
+</com.google.android.material.card.MaterialCardView>

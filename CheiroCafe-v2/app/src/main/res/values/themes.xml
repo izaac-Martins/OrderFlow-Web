@@ -1,9 +1,47 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- Base application theme configurado com os tokens semânticos Cheiro de Café -->
     <style name="Base.Theme.CheiroCafe" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <item name="colorPrimary">@color/coffee_primary</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/surface_badge_warm</item>
+        <item name="colorOnPrimaryContainer">@color/coffee_primary</item>
+
+        <item name="colorSecondary">@color/coffee_dark</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSecondaryContainer">@color/surface_pill_inactive</item>
+        <item name="colorOnSecondaryContainer">@color/coffee_dark</item>
+        <item name="colorTertiary">@color/coffee_accent</item>
+        <item name="colorOnTertiary">@color/white</item>
+
+        <item name="android:colorBackground">@color/surface_background</item>
+        <item name="colorSurface">@color/surface_card</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorSurfaceVariant">@color/surface_pill_inactive</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorOutline">@color/stroke_subtle</item>
+
+        <item name="colorControlActivated">@color/coffee_primary</item>
+        <item name="colorControlHighlight">@color/surface_badge_warm</item>
+
+        <item name="android:statusBarColor">@color/coffee_header</item>
+        <item name="android:navigationBarColor">@color/surface_background</item>
     </style>
 
     <style name="Theme.CheiroCafe" parent="Base.Theme.CheiroCafe" />
+
+    <!-- ShapeAppearance Overlays para ShapeableImageView -->
+    <style name="ShapeAppearanceOverlay.CheiroCafe.Corner12" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
+    </style>
+
+    <style name="ShapeAppearanceOverlay.CheiroCafe.Corner14" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">14dp</item>
+    </style>
+
+    <style name="ShapeAppearanceOverlay.CheiroCafe.Circle" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
 </resources>

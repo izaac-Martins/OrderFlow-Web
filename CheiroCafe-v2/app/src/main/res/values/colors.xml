@@ -1,10 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Cores Base e Legado (Mantidas por compatibilidade) -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="marrom_cafe">#581D22</color>
-    <color name="verde_botao">#1DB954</color>
-    <color name="cinza_borda">#818181</color>
-    <color name="fundo_claro">#FDFBF7</color>
-</resources>
+    <color name="marrom_cafe">#46161C</color>
+    <color name="verde_botao">#15803D</color>
+    <color name="cinza_borda">#E6DDD2</color>
+    <color name="fundo_claro">#F5F0E6</color>
 
+    <!-- Tokens Semânticos Exatos do Mockup Cheiro de Café -->
+    <color name="coffee_header">#46141A</color>
+    <color name="coffee_primary">#46161C</color>
+    <color name="coffee_dark">#281511</color>
+    <color name="coffee_accent">#C87D32</color>
+    <color name="surface_background">#F5F0E6</color>
+    <color name="surface_card">#FFFFFF</color>
+    <color name="surface_pill_inactive">#EAE0D5</color>
+    <color name="surface_badge_warm">#EAE0D5</color>
+    <color name="badge_text_warm">#5A3E36</color>
+    <color name="header_text_light">#F7F2EB</color>
+    <color name="header_subtitle">#D7C4BE</color>
+    <color name="button_cream">#F3EDE2</color>
+    <color name="online_dot">#22C55E</color>
+    <color name="stroke_subtle">#E6DDD2</color>
+    <color name="text_primary">#1C1613</color>
+    <color name="text_secondary">#6E6259</color>
+    <color name="action_confirm">#15803D</color>
+    <color name="action_danger">#DC2626</color>
+    <color name="status_pronto">#059669</color>
+</resources>

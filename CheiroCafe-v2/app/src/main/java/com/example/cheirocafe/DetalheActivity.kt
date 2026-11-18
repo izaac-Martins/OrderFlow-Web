@@ -14,6 +14,8 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.IntentCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -63,6 +65,18 @@ class DetalheActivity : AppCompatActivity() {
             finish()
             return
         }
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.main) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+        binding.ibVoltarDetalhe.setOnClickListener { finish() }
+
+        // Ocultação inteligente: só exibe a escolha de opção quando há mais de um produto
+        val exibirOpcoes = listaProdutos.size > 1
+        binding.lblTipoProduto.visibility = if (exibirOpcoes) View.VISIBLE else View.GONE
+        binding.radioGroupTipo.visibility = if (exibirOpcoes) View.VISIBLE else View.GONE
 
         viewModel.inicializarDados(tituloSubcategoria, listaProdutos)
         montarRadioGroupProdutos(listaProdutos)
@@ -167,9 +181,17 @@ class DetalheActivity : AppCompatActivity() {
     private fun renderizarEstado(estado: DetalheUiState) {
         binding.txtTitulo.text = estado.tituloTela
         binding.txtQuantidade.text = estado.quantidade.toString()
-        binding.btnAdicionar.text = "ADICIONAR AO PEDIDO (R$ ${"%.2f".format(estado.precoTotalCalculado)})"
+        binding.btnAdicionar.text = "Adicionar • R$ ${"%.2f".format(estado.precoTotalCalculado)}"
 
         val produto = estado.produtoSelecionado ?: return
+        binding.txtNomeProdutoHero.text = produto.nome
+
+        val temVariantes = produto.variantes.isNotEmpty()
+        binding.lblTamanho.visibility = if (temVariantes) View.VISIBLE else View.GONE
+        binding.containerTamanhos.visibility = if (temVariantes) View.VISIBLE else View.GONE
+        val temAdicionais = produto.adicionais.isNotEmpty()
+        binding.lblAdicionais.visibility = if (temAdicionais) View.VISIBLE else View.GONE
+        binding.containerAdicionais.visibility = if (temAdicionais) View.VISIBLE else View.GONE
 
         binding.txtDescricaoProduto.text = if (!produto.descricao.isNullOrBlank()) {
             produto.descricao
